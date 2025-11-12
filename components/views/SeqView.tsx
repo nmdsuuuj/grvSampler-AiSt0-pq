@@ -89,6 +89,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
         activeSampleBank,
         currentStep,
         samples,
+        audioContext,
     } = state;
     
     // The pattern being edited/viewed is the one for the currently active *sample* bank
@@ -102,8 +103,14 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
 
     const handleSamplePadClick = (id: number) => {
         dispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: id });
-        if (samples[id].buffer) {
-            playSample(id, 0);
+        if (samples[id] && samples[id].buffer) {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    playSample(id, 0);
+                });
+            } else if (audioContext) {
+                playSample(id, 0);
+            }
         }
     };
     

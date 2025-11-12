@@ -28,7 +28,7 @@ const Pad: React.FC<PadProps> = ({
   let colorClasses = 'bg-slate-700 border-slate-600 text-slate-300';
   if (hasContent) colorClasses = 'bg-sky-800 border-sky-700 text-sky-200';
   if (isActive) colorClasses = 'bg-amber-500 border-amber-400 text-slate-900 ring-2 ring-amber-300 ring-offset-2 ring-offset-slate-900';
-  if (isArmed) colorClasses = 'bg-rose-500 border-rose-400 text-white animate-pulse';
+  if (isArmed) colorClasses = 'bg-yellow-500 border-yellow-400 text-slate-900 animate-pulse';
   if (isPlaying) colorClasses = 'bg-lime-400 border-lime-300 text-slate-900 scale-105';
   if (isRecording) colorClasses = 'bg-rose-500 border-rose-400 text-white scale-105 animate-pulse';
 

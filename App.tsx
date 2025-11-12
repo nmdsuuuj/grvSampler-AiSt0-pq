@@ -1,82 +1,97 @@
-import React, { useState, useContext } from 'react';
-import SeqView from './components/views/SeqView';
-import SampleView from './components/views/SampleView';
-import GrooveView from './components/views/GrooveView';
-import Transport from './components/Transport';
-import TabButton from './components/TabButton';
+import React, { useState, useContext, useEffect } from 'react';
 import { AppContext } from './context/AppContext';
 import { ActionType } from './types';
+
+import Transport from './components/Transport';
+import TabButton from './components/TabButton';
+import SampleView from './components/views/SampleView';
+import SeqView from './components/views/SeqView';
+import GrooveView from './components/views/GrooveView';
+import MixerView from './components/views/MixerView';
+import ProjectView from './components/views/ProjectView';
+
 import { useAudioEngine } from './hooks/useAudioEngine';
 import { useSequencer } from './hooks/useSequencer';
 
-type View = 'SEQ' | 'SAMPLE' | 'GROOVE';
+type View = 'SAMPLE' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT';
 
 const App: React.FC = () => {
-  const [activeView, setActiveView] = useState<View>('SEQ');
-  const { dispatch } = useContext(AppContext);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const { state, dispatch } = useContext(AppContext);
+  const [activeView, setActiveView] = useState<View>('SAMPLE');
+  
+  // Initialize Audio Context on first user interaction
+  useEffect(() => {
+    const initAudio = () => {
+      if (!state.isInitialized) {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioContext.resume().then(() => {
+          dispatch({ type: ActionType.INITIALIZE_AUDIO, payload: audioContext });
+        });
+      }
+      // Remove the listener after it's been used once.
+      window.removeEventListener('click', initAudio);
+      window.removeEventListener('keydown', initAudio);
+    };
 
-  // Lift hooks to the top level to prevent them from unmounting on view change.
-  const { playSample, startRecording, stopRecording } = useAudioEngine();
+    window.addEventListener('click', initAudio);
+    window.addEventListener('keydown', initAudio);
+
+    return () => {
+      window.removeEventListener('click', initAudio);
+      window.removeEventListener('keydown', initAudio);
+    };
+  }, [state.isInitialized, dispatch]);
+
+  const { 
+    playSample, 
+    loadSampleFromBlob, 
+    startRecording, 
+    stopRecording,
+  } = useAudioEngine();
   useSequencer(playSample);
 
-
-  const initializeAudio = async () => {
-    if (isInitialized) return;
-    try {
-      // User gesture is required to start AudioContext and request permissions.
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      dispatch({ type: ActionType.INITIALIZE_AUDIO_ENGINE });
-      setIsInitialized(true);
-    } catch (error) {
-      console.error("Microphone access denied.", error);
-      alert("Microphone access is required for this application to function.");
-    }
-  };
-
   const renderView = () => {
-    const viewProps = { playSample, startRecording, stopRecording };
     switch (activeView) {
-      case 'SEQ':
-        return <SeqView {...viewProps} />;
       case 'SAMPLE':
-        return <SampleView {...viewProps} />;
+        return <SampleView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} loadSampleFromBlob={loadSampleFromBlob} />;
+      case 'SEQ':
+        return <SeqView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} />;
       case 'GROOVE':
         return <GrooveView />;
+      case 'MIXER':
+          return <MixerView />;
+      case 'PROJECT':
+        return <ProjectView loadSampleFromBlob={loadSampleFromBlob} />;
       default:
-        return <SeqView {...viewProps} />;
+        return <SampleView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} loadSampleFromBlob={loadSampleFromBlob} />;
     }
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col font-sans select-none overflow-hidden max-w-lg mx-auto bg-slate-900">
-      {!isInitialized && (
-         <div className="fixed inset-0 bg-black bg-opacity-80 flex flex-col items-center justify-center z-50 p-4">
-            <h1 className="text-3xl font-bold text-white mb-4">Groove Sampler</h1>
-            <p className="text-slate-300 mb-6 text-center">Tap to start and allow microphone access for recording.</p>
-            <button
-                onClick={initializeAudio}
-                className="bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 px-8 rounded-lg text-xl shadow-lg"
-            >
-                Start
-            </button>
-        </div>
-      )}
-      <header className="bg-slate-950 p-2 flex-shrink-0 border-b-2 border-slate-700">
+    <div className="bg-slate-900 text-slate-100 flex flex-col h-screen font-sans w-full max-w-md mx-auto">
+      {/* Header / Transport */}
+      <header className="flex-shrink-0 p-2 bg-slate-800/50">
         <Transport />
-        <div className="grid grid-cols-3 gap-2 mt-2">
-          <TabButton label="SEQ" isActive={activeView === 'SEQ'} onClick={() => setActiveView('SEQ')} />
-          <TabButton label="SAMPLE" isActive={activeView === 'SAMPLE'} onClick={() => setActiveView('SAMPLE')} />
-          <TabButton label="GROOVE" isActive={activeView === 'GROOVE'} onClick={() => setActiveView('GROOVE')} />
-        </div>
       </header>
-      
-      <main className="flex-grow p-1 flex flex-col min-h-0">
-        {renderView()}
+
+      {/* Main Content */}
+      <main className="flex-grow min-h-0">
+        {state.isInitialized ? renderView() : (
+           <div className="flex items-center justify-center h-full">
+            <p className="text-slate-400 text-lg">Click anywhere to start the audio engine...</p>
+          </div>
+        )}
       </main>
-      
-      <footer className="bg-slate-800 p-2 flex-shrink-0">
-        <h1 className="text-xl font-bold text-center">Groove Sampler</h1>
+
+      {/* Footer / View Tabs */}
+      <footer className="flex-shrink-0 p-1 bg-slate-800/50">
+        <div className="grid grid-cols-5 gap-1">
+          <TabButton label="SAMPLE" isActive={activeView === 'SAMPLE'} onClick={() => setActiveView('SAMPLE')} />
+          <TabButton label="SEQ" isActive={activeView === 'SEQ'} onClick={() => setActiveView('SEQ')} />
+          <TabButton label="GROOVE" isActive={activeView === 'GROOVE'} onClick={() => setActiveView('GROOVE')} />
+          <TabButton label="MIXER" isActive={activeView === 'MIXER'} onClick={() => setActiveView('MIXER')} />
+          <TabButton label="PROJECT" isActive={activeView === 'PROJECT'} onClick={() => setActiveView('PROJECT')} />
+        </div>
       </footer>
     </div>
   );
