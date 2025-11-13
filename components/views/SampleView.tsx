@@ -1,5 +1,4 @@
-
-import React, { useContext, useState, useEffect, useRef } from 'react';
+import React, { useContext, useState, useRef } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType } from '../../types';
 import Fader from '../Fader';
@@ -20,52 +19,45 @@ const encodeWav = (audioBuffer: AudioBuffer): Blob => {
     const length = audioBuffer.length * numOfChan * 2 + 44;
     const buffer = new ArrayBuffer(length);
     const view = new DataView(buffer);
-    const channels: Float32Array[] = [];
-    let i, sample;
     let offset = 0;
     let pos = 0;
 
-    // write WAVE header
-    setUint32(0x46464952); // "RIFF"
-    setUint32(length - 8); // file length - 8
-    setUint32(0x4556157); // "WAVE"
-
-    setUint32(0x20746d66); // "fmt " chunk
-    setUint32(16); // length = 16
-    setUint16(1); // PCM (uncompressed)
-    setUint16(numOfChan);
-    setUint32(audioBuffer.sampleRate);
-    setUint32(audioBuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
-    setUint16(numOfChan * 2); // block-align
-    setUint16(16); // 16-bit
-
-    setUint32(0x61746164); // "data" - chunk
-    setUint32(length - pos - 4); // chunk length
-
-    function setUint16(data: number) {
+    const setUint16 = (data: number) => {
         view.setUint16(pos, data, true);
         pos += 2;
-    }
-
-    function setUint32(data: number) {
+    };
+    const setUint32 = (data: number) => {
         view.setUint32(pos, data, true);
         pos += 4;
-    }
+    };
 
-    // write interleaved data
-    for (i = 0; i < numOfChan; i++) {
+    setUint32(0x46464952); // "RIFF"
+    setUint32(length - 8); // file length - 8
+    setUint32(0x45564157); // "WAVE"
+    setUint32(0x20746d66); // "fmt " chunk
+    setUint32(16);
+    setUint16(1);
+    setUint16(numOfChan);
+    setUint32(audioBuffer.sampleRate);
+    setUint32(audioBuffer.sampleRate * 2 * numOfChan);
+    setUint16(numOfChan * 2);
+    setUint16(16);
+    setUint32(0x61746164); // "data" chunk
+    setUint32(length - pos - 4);
+
+    const channels: Float32Array[] = [];
+    for (let i = 0; i < numOfChan; i++) {
         channels.push(audioBuffer.getChannelData(i));
     }
 
     while (pos < length) {
-        for (i = 0; i < numOfChan; i++) {
-            // interleave channels
-            sample = Math.max(-1, Math.min(1, channels[i][offset])); // clamp
-            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0; // scale to 16-bit signed int
-            view.setInt16(pos, sample, true); // write 16-bit sample
+        for (let i = 0; i < numOfChan; i++) {
+            let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+            view.setInt16(pos, sample, true);
             pos += 2;
         }
-        offset++; // next source sample
+        offset++;
     }
 
     return new Blob([view], { type: 'audio/wav' });
@@ -77,52 +69,19 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
     const { activeSampleId, samples, activeSampleBank, isRecording, audioContext, isArmed, recordingThreshold, sampleClipboard } = state;
     const activeSample = samples[activeSampleId];
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isSamplingMode, setIsSamplingMode] = useState(true);
 
-    const [localName, setLocalName] = useState(activeSample?.name || '');
-
-    useEffect(() => {
-        setLocalName(activeSample?.name || '');
-    }, [activeSample]);
-
-    const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setLocalName(e.target.value);
-    };
-
-    const handleNameBlur = () => {
-        dispatch({
-            type: ActionType.UPDATE_SAMPLE_NAME,
-            payload: { sampleId: activeSampleId, name: localName },
-        });
-    };
-    
-    const handleThresholdChange = (uiValue: number) => {
-        const actualValue = Math.pow(uiValue, 3);
-        dispatch({ type: ActionType.SET_RECORDING_THRESHOLD, payload: actualValue });
-    };
-    const thresholdUiValue = Math.cbrt(recordingThreshold);
-    const defaultThreshold = 0.1;
-
-    if (!activeSample) {
-        return <div className="text-center p-4">Select a sample</div>;
-    }
-
-    const handleParamChange = (param: 'pitch' | 'start' | 'volume' | 'decay', value: number) => {
+    const handleParamChange = (param: 'pitch' | 'start' | 'volume' | 'decay' | 'lpFreq' | 'hpFreq', value: number) => {
         dispatch({
             type: ActionType.UPDATE_SAMPLE_PARAM,
             payload: { sampleId: activeSampleId, param, value },
         });
     };
-    
+
     const handleSamplePadClick = (id: number) => {
         dispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: id });
-        if (samples[id] && samples[id].buffer) {
-            if (audioContext && audioContext.state === 'suspended') {
-                audioContext.resume().then(() => {
-                    playSample(id, 0);
-                });
-            } else if (audioContext) {
-                playSample(id, 0);
-            }
+        if (samples[id]?.buffer) {
+            audioContext?.resume().then(() => playSample(id, 0));
         }
     };
 
@@ -133,7 +92,7 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
             startRecording();
         }
     };
-    
+
     const handleExport = () => {
         if (!activeSample.buffer) {
             alert("No audio content to export.");
@@ -142,122 +101,103 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
         const wavBlob = encodeWav(activeSample.buffer);
         const url = URL.createObjectURL(wavBlob);
         const a = document.createElement('a');
-        document.body.appendChild(a);
-        a.style.display = 'none';
         a.href = url;
         a.download = `${activeSample.name || 'sample'}.wav`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-        a.remove();
     };
 
-    const handleFileImportClick = () => {
-        fileInputRef.current?.click();
-    };
+    const handleFileImportClick = () => fileInputRef.current?.click();
 
     const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
             loadSampleFromBlob(file, activeSampleId, file.name.replace(/\.[^/.]+$/, ""));
-             if (event.target) {
-                event.target.value = '';
-            }
+            if (event.target) event.target.value = '';
         }
     };
+    
+    const handleThresholdChange = (uiValue: number) => {
+        // Use a 4th power curve for more precision at lower values
+        const actualValue = Math.pow(uiValue, 4);
+        dispatch({ type: ActionType.SET_RECORDING_THRESHOLD, payload: actualValue });
+    };
 
-    let buttonLabel = 'ARM';
-    let buttonClasses = 'bg-emerald-300';
+    const MIN_FREQ = 20, MAX_FREQ = 20000;
+    const linearToLog = (v: number) => MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, v);
+    const logToLinear = (v: number) => (v <= MIN_FREQ) ? 0 : (v >= MAX_FREQ) ? 1 : Math.log(v / MIN_FREQ) / Math.log(MAX_FREQ / MIN_FREQ);
+
+    if (!activeSample) return <div className="p-4 text-center">Select a sample</div>;
+
+    const buttonLabel = isRecording ? 'STOP' : isArmed ? 'ARMED' : 'ARM';
+    
+    let armButtonClasses = 'bg-rose-300 hover:bg-rose-400 text-rose-800'; // Default
     if (isArmed) {
-        buttonLabel = 'ARMED';
-        buttonClasses = 'bg-yellow-400 text-slate-800 animate-pulse';
+        armButtonClasses = 'bg-yellow-400 text-slate-800 animate-pulse'; // Armed (waiting)
     }
     if (isRecording) {
-        buttonLabel = 'STOP';
-        buttonClasses = 'bg-rose-500 text-white animate-pulse';
+        armButtonClasses = 'bg-red-500 text-white animate-pulse'; // Recording
     }
 
     const sampleBankOffset = activeSampleBank * PADS_PER_BANK;
+    const activeSampleLabel = `${String.fromCharCode(65 + activeSampleBank)}${(activeSampleId % PADS_PER_BANK) + 1}`;
 
     return (
-        <div className="flex flex-col h-full p-2 space-y-4">
+        <div className="flex flex-col h-full p-1 space-y-1">
             <input type="file" accept="audio/*" ref={fileInputRef} onChange={handleFileSelected} className="hidden" />
-            <div className="flex-shrink-0 space-y-2">
-                <div className="flex justify-between items-center space-x-2">
-                    <input
-                        type="text"
-                        value={localName}
-                        onChange={handleNameChange}
-                        onBlur={handleNameBlur}
-                        className="bg-transparent text-lg font-bold w-full focus:outline-none focus:bg-emerald-100 rounded px-2 py-1"
-                    />
-                     {!activeSample.buffer && (
-                        <span className="text-sm text-slate-400 font-medium flex-shrink-0 pr-2">(EMPTY)</span>
-                    )}
-                    <button onClick={handleRecordClick} className={`px-4 py-3 text-sm font-bold rounded transition-colors ${buttonClasses} flex-shrink-0 w-24 text-center`}>
-                        {buttonLabel}
-                    </button>
+
+            <div className="flex items-center justify-between space-x-2 flex-shrink-0 bg-white shadow p-1 rounded-lg">
+                <div className="flex items-center space-x-2">
+                    <div className="bg-emerald-100 rounded-md px-3 py-2 flex-shrink-0">
+                        <span className="font-bold text-lg text-slate-700">{activeSampleLabel}</span>
+                        {!activeSample.buffer && <span className="text-xs text-slate-400 font-medium ml-2">(EMPTY)</span>}
+                    </div>
+                    <BankSelector type="sample" />
                 </div>
-                 <div className="w-full">
-                     <Fader 
-                        label="Threshold"
-                        value={thresholdUiValue}
-                        displayValue={recordingThreshold}
-                        onChange={handleThresholdChange}
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        defaultValue={Math.cbrt(defaultThreshold)}
-                     />
-                 </div>
+                <button 
+                    onClick={() => setIsSamplingMode(!isSamplingMode)}
+                    className={`px-3 py-2 text-xs font-bold rounded-md transition-colors ${isSamplingMode ? 'bg-sky-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+                >
+                    {isSamplingMode ? 'SAMPLING' : 'PARAMS'}
+                </button>
             </div>
             
-            <div className="flex flex-col space-y-2 flex-shrink-0">
-                <BankSelector type="sample"/>
-                <div className="grid grid-cols-4 gap-2">
-                    {Array.from({ length: PADS_PER_BANK }).map((_, i) => {
-                        const sampleId = sampleBankOffset + i;
-                        const sample = samples[sampleId];
-                        return (
-                            <Pad
-                                key={sampleId}
-                                id={sampleId}
-                                label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`}
-                                onClick={handleSamplePadClick}
-                                isActive={activeSampleId === sampleId}
-                                hasContent={!!sample.buffer}
-                                isArmed={isArmed && activeSampleId === sampleId}
-                                isRecording={isRecording && activeSampleId === sampleId}
-                                padType="sample"
-                            />
-                        );
-                    })}
-                </div>
+            <div className="grid grid-cols-8 gap-1 flex-shrink-0">
+                {Array.from({ length: PADS_PER_BANK }).map((_, i) => {
+                    const sampleId = sampleBankOffset + i;
+                    return <Pad key={sampleId} id={sampleId} label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleId} hasContent={!!samples[sampleId].buffer} isArmed={isArmed && activeSampleId === sampleId} isRecording={isRecording && activeSampleId === sampleId} padType="sample" />;
+                })}
             </div>
 
-            <div className="space-y-4 bg-white shadow-md p-4 rounded-lg flex flex-col justify-center flex-grow">
-                <div className="flex space-x-2 items-center flex-wrap gap-y-2">
-                    <h3 className="text-lg font-bold text-slate-700">Parameters</h3>
-                     <button onClick={() => dispatch({ type: ActionType.COPY_SAMPLE })} className="bg-emerald-300 hover:bg-emerald-400 text-slate-800 font-bold px-3 py-1.5 rounded text-xs">
-                        Copy
-                    </button>
-                     <button 
-                        onClick={() => dispatch({ type: ActionType.PASTE_SAMPLE })} 
-                        className="bg-emerald-300 hover:bg-emerald-400 text-slate-800 font-bold px-3 py-1.5 rounded text-xs disabled:bg-emerald-100 disabled:text-emerald-400 disabled:cursor-not-allowed"
-                        disabled={!sampleClipboard}
-                     >
-                        Paste
-                    </button>
-                    <button onClick={handleFileImportClick} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-3 py-1.5 rounded text-xs">
-                       Import
-                    </button>
-                    <button onClick={handleExport} className="bg-pink-400 hover:bg-pink-500 text-white font-bold px-3 py-1.5 rounded text-xs">
-                        Export WAV
-                    </button>
+            <div className="bg-white shadow-md p-2 rounded-lg flex flex-col justify-around flex-grow">
+                {isSamplingMode ? (
+                    <div className="space-y-2">
+                        <div className="grid grid-cols-5 gap-1 text-center">
+                            <button onClick={handleRecordClick} className={`py-2 text-sm font-bold rounded transition-colors ${armButtonClasses}`}>{buttonLabel}</button>
+                            <button onClick={() => dispatch({ type: ActionType.COPY_SAMPLE })} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-2 rounded text-xs">Copy</button>
+                            <button onClick={() => dispatch({ type: ActionType.PASTE_SAMPLE })} disabled={!sampleClipboard} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-2 rounded text-xs disabled:bg-emerald-100 disabled:text-emerald-400 disabled:cursor-not-allowed">Paste</button>
+                            <button onClick={handleFileImportClick} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs">Imprt</button>
+                            <button onClick={handleExport} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs">Exprt</button>
+                        </div>
+                        <div>
+                            <Fader label="Threshold" value={Math.pow(recordingThreshold, 1/4)} displayValue={recordingThreshold} onChange={handleThresholdChange} min={0} max={1} step={0.01} defaultValue={Math.pow(0.02, 1/4)} />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        <Fader label="LP" value={logToLinear(activeSample.lpFreq)} onChange={(v) => handleParamChange('lpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={1} displayValue={activeSample.lpFreq} displayPrecision={0} />
+                        <Fader label="HP" value={logToLinear(activeSample.hpFreq)} onChange={(v) => handleParamChange('hpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={0} displayValue={activeSample.hpFreq} displayPrecision={0} />
+                    </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                    <Fader label="Pitch" value={activeSample.pitch} onChange={(val) => handleParamChange('pitch', val)} min={-24} max={24} step={0.01} defaultValue={0} />
+                    <Fader label="Start" value={activeSample.start} onChange={(val) => handleParamChange('start', val)} min={0} max={1} step={0.001} defaultValue={0} />
+                    <Fader label="Decay" value={activeSample.decay} onChange={(val) => handleParamChange('decay', val)} min={0.01} max={1} step={0.001} defaultValue={1} />
+                    <Fader label="Vol" value={activeSample.volume} onChange={(val) => handleParamChange('volume', val)} min={0} max={1} step={0.01} defaultValue={1} />
                 </div>
-                <Fader label="Pitch" value={activeSample.pitch} onChange={(val) => handleParamChange('pitch', val)} min={-24} max={24} step={0.01} defaultValue={0} />
-                <Fader label="Start" value={activeSample.start} onChange={(val) => handleParamChange('start', val)} min={0} max={1} step={0.001} defaultValue={0} />
-                <Fader label="Decay" value={activeSample.decay} onChange={(val) => handleParamChange('decay', val)} min={0.01} max={1} step={0.001} defaultValue={1} />
-                <Fader label="Vol" value={activeSample.volume} onChange={(val) => handleParamChange('volume', val)} min={0} max={1} step={0.01} defaultValue={1} />
             </div>
         </div>
     );

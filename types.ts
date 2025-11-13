@@ -13,6 +13,8 @@ export interface Sample {
     pitch: number;
     start: number; // 0-1
     decay: number; // 0-1
+    lpFreq: number; // Low-pass filter frequency
+    hpFreq: number; // High-pass filter frequency
 }
 
 export interface Pattern {
@@ -24,6 +26,14 @@ export interface Pattern {
     stepResolutionB: number;
     stepLengthB: number;
     loopCountB: number;
+}
+
+export interface MasterCompressorParams {
+    threshold: number; // dB, -100 to 0
+    knee: number;      // dB, 0 to 40
+    ratio: number;     // unitless, 1 to 20
+    attack: number;    // seconds, 0 to 1
+    release: number;   // seconds, 0 to 1
 }
 
 export interface AppState {
@@ -52,6 +62,8 @@ export interface AppState {
     isMasterRecording: boolean;
     isMasterRecArmed: boolean;
     sampleClipboard: Sample | null;
+    masterCompressorOn: boolean;
+    masterCompressorParams: MasterCompressorParams;
 }
 
 export enum ActionType {
@@ -83,6 +95,8 @@ export enum ActionType {
     TOGGLE_MASTER_REC_ARMED,
     COPY_SAMPLE,
     PASTE_SAMPLE,
+    TOGGLE_MASTER_COMPRESSOR,
+    UPDATE_MASTER_COMPRESSOR_PARAM,
 }
 
 export type Action =
@@ -95,7 +109,7 @@ export type Action =
     | { type: ActionType.SET_ACTIVE_GROOVE; payload: number }
     | { type: ActionType.SET_ACTIVE_GROOVE_BANK; payload: number }
     | { type: ActionType.SET_GROOVE_DEPTH; payload: number }
-    | { type: ActionType.UPDATE_SAMPLE_PARAM; payload: { sampleId: number; param: 'volume' | 'pitch' | 'start' | 'decay'; value: number } }
+    | { type: ActionType.UPDATE_SAMPLE_PARAM; payload: { sampleId: number; param: 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq'; value: number } }
     | { type: ActionType.UPDATE_SAMPLE_NAME; payload: { sampleId: number; name: string } }
     | { type: ActionType.SET_SAMPLES; payload: Sample[] }
     | { type: ActionType.TOGGLE_STEP; payload: { patternId: number; sampleId: number; step: number } }
@@ -113,4 +127,6 @@ export type Action =
     | { type: ActionType.TOGGLE_MASTER_RECORDING }
     | { type: ActionType.TOGGLE_MASTER_REC_ARMED }
     | { type: ActionType.COPY_SAMPLE }
-    | { type: ActionType.PASTE_SAMPLE };
+    | { type: ActionType.PASTE_SAMPLE }
+    | { type: ActionType.TOGGLE_MASTER_COMPRESSOR }
+    | { type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM; payload: { param: keyof MasterCompressorParams; value: number } };

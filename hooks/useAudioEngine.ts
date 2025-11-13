@@ -18,12 +18,15 @@ const usePrevious = <T,>(value: T): T | undefined => {
 
 export const useAudioEngine = () => {
     const { state, dispatch } = useContext(AppContext);
-    const { audioContext, samples, bankVolumes, bankPans, bankMutes, bankSolos, isRecording, isArmed, recordingThreshold, activeSampleId, masterVolume } = state;
+    const { audioContext, samples, bankVolumes, bankPans, bankMutes, bankSolos, isRecording, isArmed, recordingThreshold, activeSampleId, masterVolume, masterCompressorOn, masterCompressorParams } = state;
     
     const masterGainRef = useRef<GainNode | null>(null);
+    const masterCompressorRef = useRef<DynamicsCompressorNode | null>(null);
     const bankGainsRef = useRef<GainNode[]>([]);
     const bankPannersRef = useRef<StereoPannerNode[]>([]);
     const sampleGainsRef = useRef<GainNode[]>([]);
+    const lpFilterNodesRef = useRef<BiquadFilterNode[]>([]);
+    const hpFilterNodesRef = useRef<BiquadFilterNode[]>([]);
     const activeSourcesRef = useRef<Map<number, Set<AudioBufferSourceNode>>>(new Map());
 
     // Create a ref to hold the latest state for use in callbacks without causing re-renders.
@@ -52,10 +55,18 @@ export const useAudioEngine = () => {
     // --- Initialize core audio graph (runs once) ---
     useEffect(() => {
         if (audioContext && masterGainRef.current === null) {
+            // Master Compressor
+            const compressor = audioContext.createDynamicsCompressor();
+            masterCompressorRef.current = compressor;
+
              // Master Gain
             const masterGain = audioContext.createGain();
             masterGain.connect(audioContext.destination);
             masterGainRef.current = masterGain;
+
+            // Connect compressor to master gain
+            compressor.connect(masterGain);
+
 
             for (let i = 0; i < TOTAL_BANKS; i++) {
                 const gainNode = audioContext.createGain();
@@ -65,18 +76,43 @@ export const useAudioEngine = () => {
                 pannerNode.pan.value = state.bankPans[i];
 
                 gainNode.connect(pannerNode);
-                pannerNode.connect(masterGainRef.current); // Connect to master instead of destination
+                pannerNode.connect(masterCompressorRef.current); // Connect to compressor instead of master gain
 
                 bankGainsRef.current.push(gainNode);
                 bankPannersRef.current.push(pannerNode);
             }
+            
+            const lpFilters: BiquadFilterNode[] = [];
+            const hpFilters: BiquadFilterNode[] = [];
+            const sampleGains: GainNode[] = [];
             for (let i = 0; i < TOTAL_SAMPLES; i++) {
+                const lpFilter = audioContext.createBiquadFilter();
+                lpFilter.type = 'lowpass';
+                lpFilter.frequency.value = state.samples[i].lpFreq;
+                lpFilter.Q.value = 1;
+
+                const hpFilter = audioContext.createBiquadFilter();
+                hpFilter.type = 'highpass';
+                hpFilter.frequency.value = state.samples[i].hpFreq;
+                hpFilter.Q.value = 1;
+
                 const sampleGainNode = audioContext.createGain();
                 sampleGainNode.gain.value = state.samples[i].volume;
+                
                 const bankIndex = Math.floor(i / PADS_PER_BANK);
-                sampleGainNode.connect(bankGainsRef.current[bankIndex]);
-                sampleGainsRef.current.push(sampleGainNode);
+                if (bankGainsRef.current[bankIndex]) {
+                    lpFilter.connect(hpFilter);
+                    hpFilter.connect(sampleGainNode);
+                    sampleGainNode.connect(bankGainsRef.current[bankIndex]);
+                }
+
+                lpFilters.push(lpFilter);
+                hpFilters.push(hpFilter);
+                sampleGains.push(sampleGainNode);
             }
+            lpFilterNodesRef.current = lpFilters;
+            hpFilterNodesRef.current = hpFilters;
+            sampleGainsRef.current = sampleGains;
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [audioContext]);
@@ -89,7 +125,7 @@ export const useAudioEngine = () => {
         }
         const now = audioContext.currentTime;
 
-        // 1. Sync Sample Parameters (Volume & Pitch)
+        // 1. Sync Sample Parameters (Volume, Pitch, Filters)
         if (prevSamples) {
             samples.forEach((currentSample, i) => {
                 const prevSample = prevSamples[i];
@@ -114,6 +150,26 @@ export const useAudioEngine = () => {
                             source.detune.setValueAtTime(source.detune.value, now);
                             source.detune.linearRampToValueAtTime(currentSample.pitch * 100, now + RAMP_TIME);
                         });
+                    }
+                }
+                
+                // Sync LP Freq
+                if (currentSample.lpFreq !== prevSample.lpFreq) {
+                    const filterNode = lpFilterNodesRef.current[i];
+                    if (filterNode) {
+                        filterNode.frequency.cancelScheduledValues(now);
+                        filterNode.frequency.setValueAtTime(filterNode.frequency.value, now);
+                        filterNode.frequency.linearRampToValueAtTime(currentSample.lpFreq, now + RAMP_TIME);
+                    }
+                }
+
+                // Sync HP Freq
+                if (currentSample.hpFreq !== prevSample.hpFreq) {
+                    const filterNode = hpFilterNodesRef.current[i];
+                    if (filterNode) {
+                        filterNode.frequency.cancelScheduledValues(now);
+                        filterNode.frequency.setValueAtTime(filterNode.frequency.value, now);
+                        filterNode.frequency.linearRampToValueAtTime(currentSample.hpFreq, now + RAMP_TIME);
                     }
                 }
             });
@@ -154,12 +210,40 @@ export const useAudioEngine = () => {
             masterGainRef.current.gain.linearRampToValueAtTime(masterVolume, now + RAMP_TIME);
         }
 
-    }, [samples, bankVolumes, bankPans, bankMutes, bankSolos, masterVolume, audioContext, prevSamples]);
+        // 5. Sync Master Compressor
+        if (masterCompressorRef.current) {
+            const { threshold, knee, ratio, attack, release } = masterCompressorParams;
+            const comp = masterCompressorRef.current;
+            const targetValues = masterCompressorOn ? { threshold, knee, ratio, attack, release } : { threshold: 0, knee: 0, ratio: 1, attack: 0, release: 0.25 };
+            
+            comp.threshold.cancelScheduledValues(now);
+            comp.threshold.setValueAtTime(comp.threshold.value, now);
+            comp.threshold.linearRampToValueAtTime(targetValues.threshold, now + RAMP_TIME);
+
+            comp.knee.cancelScheduledValues(now);
+            comp.knee.setValueAtTime(comp.knee.value, now);
+            comp.knee.linearRampToValueAtTime(targetValues.knee, now + RAMP_TIME);
+
+            comp.ratio.cancelScheduledValues(now);
+            comp.ratio.setValueAtTime(comp.ratio.value, now);
+            comp.ratio.linearRampToValueAtTime(targetValues.ratio, now + RAMP_TIME);
+
+            comp.attack.cancelScheduledValues(now);
+            comp.attack.setValueAtTime(comp.attack.value, now);
+            comp.attack.linearRampToValueAtTime(targetValues.attack, now + RAMP_TIME);
+
+            comp.release.cancelScheduledValues(now);
+            comp.release.setValueAtTime(comp.release.value, now);
+            comp.release.linearRampToValueAtTime(targetValues.release, now + RAMP_TIME);
+        }
+
+
+    }, [samples, bankVolumes, bankPans, bankMutes, bankSolos, masterVolume, audioContext, prevSamples, masterCompressorOn, masterCompressorParams]);
     
 
     const playSample = useCallback((sampleId: number, scheduleTime: number) => {
         const { audioContext: ctx, samples: currentSamples } = stateRef.current;
-        if (!ctx || sampleGainsRef.current.length === 0) return;
+        if (!ctx || lpFilterNodesRef.current.length === 0) return;
         
         const sample = currentSamples[sampleId];
         if (!sample || !sample.buffer) return;
@@ -172,7 +256,7 @@ export const useAudioEngine = () => {
         const envelopeGainNode = ctx.createGain();
 
         source.connect(envelopeGainNode);
-        envelopeGainNode.connect(sampleGainsRef.current[sampleId]);
+        envelopeGainNode.connect(lpFilterNodesRef.current[sampleId]);
         
         // Use setValueAtTime for consistency, even if it's before the start time.
         source.detune.setValueAtTime(sample.pitch * 100, effectiveTime);
@@ -283,9 +367,62 @@ export const useAudioEngine = () => {
                         audioChunksRef.current.push(event.data);
                     };
                     mediaRecorderRef.current.onstop = async () => {
+                        if (audioChunksRef.current.length === 0) return;
                         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-                        await loadSampleFromBlob(audioBlob, stateRef.current.activeSampleId, stateRef.current.samples[stateRef.current.activeSampleId].name);
                         audioChunksRef.current = [];
+                        const { audioContext: ctx, activeSampleId: currentActiveSampleId, samples: currentSamples } = stateRef.current;
+                        if (!ctx) return;
+
+                        try {
+                            const arrayBuffer = await audioBlob.arrayBuffer();
+                            const originalBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+                            // --- Start Normalization Logic ---
+                            let peak = 0;
+                            for (let i = 0; i < originalBuffer.numberOfChannels; i++) {
+                                const channelData = originalBuffer.getChannelData(i);
+                                for (let j = 0; j < channelData.length; j++) {
+                                    const amp = Math.abs(channelData[j]);
+                                    if (amp > peak) {
+                                        peak = amp;
+                                    }
+                                }
+                            }
+                            
+                            let finalBuffer = originalBuffer;
+                    
+                            if (peak > 0) {
+                                const gain = 1.0 / peak;
+                    
+                                const offlineCtx = new OfflineAudioContext(
+                                    originalBuffer.numberOfChannels,
+                                    originalBuffer.length,
+                                    originalBuffer.sampleRate
+                                );
+                                const source = offlineCtx.createBufferSource();
+                                source.buffer = originalBuffer;
+                                const gainNode = offlineCtx.createGain();
+                                gainNode.gain.value = gain;
+                                source.connect(gainNode);
+                                gainNode.connect(offlineCtx.destination);
+                                source.start(0);
+                    
+                                finalBuffer = await offlineCtx.startRendering();
+                            }
+                            // --- End Normalization Logic ---
+                    
+                            const newSamples = [...currentSamples];
+                            const oldSample = newSamples[currentActiveSampleId];
+                            newSamples[currentActiveSampleId] = {
+                                ...oldSample,
+                                buffer: finalBuffer,
+                            };
+                            dispatch({ type: ActionType.SET_SAMPLES, payload: newSamples });
+                    
+                        } catch (error) {
+                            console.error('Error processing recorded sample:', error);
+                            alert('Failed to process recorded audio.');
+                        }
                     };
                     mediaRecorderRef.current.start();
                     dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
@@ -301,7 +438,7 @@ export const useAudioEngine = () => {
             dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
         }
 
-    }, [dispatch, loadSampleFromBlob]);
+    }, [dispatch]);
 
     const stopRecording = useCallback(() => {
         const { isArmed: armed, isRecording: recording } = stateRef.current;

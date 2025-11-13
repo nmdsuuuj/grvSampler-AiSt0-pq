@@ -16,6 +16,8 @@ export interface StorableSample {
     pitch: number;
     start: number;
     decay: number;
+    lpFreq: number;
+    hpFreq: number;
 }
 
 export interface Project {

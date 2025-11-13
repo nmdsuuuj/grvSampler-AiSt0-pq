@@ -96,6 +96,8 @@ const ProjectView: React.FC<ProjectViewProps> = ({ loadSampleFromBlob }) => {
             pitch: storableSample.pitch,
             start: storableSample.start,
             decay: storableSample.decay,
+            lpFreq: storableSample.lpFreq ?? 20000,
+            hpFreq: storableSample.hpFreq ?? 20,
         }));
         
         const stateToLoad: Partial<AppState> = {

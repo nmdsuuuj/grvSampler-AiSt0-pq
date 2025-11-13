@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, Dispatch } from 'react';
-import { AppState, Action, ActionType, Sample } from '../types';
+import { AppState, Action, ActionType, Sample, MasterCompressorParams } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
 
 const initialState: AppState = {
@@ -8,7 +8,7 @@ const initialState: AppState = {
     isPlaying: false,
     isRecording: false,
     isArmed: false,
-    recordingThreshold: 0.1,
+    recordingThreshold: 0.02,
     bpm: 120,
     currentStep: -1,
     activeSampleId: 0,
@@ -24,6 +24,8 @@ const initialState: AppState = {
         pitch: 0,
         start: 0,
         decay: 1,
+        lpFreq: 20000,
+        hpFreq: 20,
     })),
     patterns: Array.from({ length: TOTAL_PATTERNS }, (_, i) => ({
         id: i,
@@ -45,6 +47,14 @@ const initialState: AppState = {
     isMasterRecording: false,
     isMasterRecArmed: false,
     sampleClipboard: null,
+    masterCompressorOn: false,
+    masterCompressorParams: {
+        threshold: -24,
+        knee: 30,
+        ratio: 12,
+        attack: 0.003,
+        release: 0.25,
+    },
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -175,6 +185,18 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 return s;
             });
             return { ...state, samples: newSamples };
+        }
+        case ActionType.TOGGLE_MASTER_COMPRESSOR:
+            return { ...state, masterCompressorOn: !state.masterCompressorOn };
+        case ActionType.UPDATE_MASTER_COMPRESSOR_PARAM: {
+            const { param, value } = action.payload;
+            return {
+                ...state,
+                masterCompressorParams: {
+                    ...state.masterCompressorParams,
+                    [param]: value,
+                },
+            };
         }
         default:
             return state;

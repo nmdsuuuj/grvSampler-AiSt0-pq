@@ -72,7 +72,7 @@ const App: React.FC = () => {
   return (
     <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto">
       {/* Header / Transport */}
-      <header className="flex-shrink-0 p-2 bg-emerald-100/50">
+      <header className="flex-shrink-0 p-1 bg-emerald-100/50">
         <Transport startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />
       </header>
 

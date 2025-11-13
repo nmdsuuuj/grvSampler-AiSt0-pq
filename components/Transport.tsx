@@ -46,7 +46,9 @@ const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterR
     if (bpmMode === 'ratio') {
       setBaseBpmForRatio(bpm);
     }
-  }, [bpmMode, bpm]); // Added bpm dependency to reset base on external changes
+    // Only update the base BPM when the mode is switched to 'ratio'.
+    // Tapping a new tempo will correctly update the base via the handleTap callback.
+  }, [bpmMode]);
 
   const handlePlayToggle = () => {
     if(state.audioContext && state.audioContext.state === 'suspended') {
