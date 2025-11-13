@@ -45,6 +45,12 @@ export interface AppState {
     activePatternIds: number[]; // one per bank
     grooves: Groove[];
     bankVolumes: number[]; // one per bank
+    bankPans: number[]; // one per bank, -1 (L) to 1 (R)
+    bankMutes: boolean[]; // one per bank
+    bankSolos: boolean[]; // one per bank
+    masterVolume: number;
+    isMasterRecording: boolean;
+    isMasterRecArmed: boolean;
     sampleClipboard: Sample | null;
 }
 
@@ -69,6 +75,12 @@ export enum ActionType {
     SET_ARMED_STATE,
     SET_RECORDING_THRESHOLD,
     SET_BANK_VOLUME,
+    SET_BANK_PAN,
+    TOGGLE_BANK_MUTE,
+    TOGGLE_BANK_SOLO,
+    SET_MASTER_VOLUME,
+    TOGGLE_MASTER_RECORDING,
+    TOGGLE_MASTER_REC_ARMED,
     COPY_SAMPLE,
     PASTE_SAMPLE,
 }
@@ -94,5 +106,11 @@ export type Action =
     | { type: ActionType.SET_ARMED_STATE; payload: boolean }
     | { type: ActionType.SET_RECORDING_THRESHOLD; payload: number }
     | { type: ActionType.SET_BANK_VOLUME; payload: { bankIndex: number; volume: number } }
+    | { type: ActionType.SET_BANK_PAN; payload: { bankIndex: number; pan: number } }
+    | { type: ActionType.TOGGLE_BANK_MUTE; payload: { bankIndex: number } }
+    | { type: ActionType.TOGGLE_BANK_SOLO; payload: { bankIndex: number } }
+    | { type: ActionType.SET_MASTER_VOLUME; payload: number }
+    | { type: ActionType.TOGGLE_MASTER_RECORDING }
+    | { type: ActionType.TOGGLE_MASTER_REC_ARMED }
     | { type: ActionType.COPY_SAMPLE }
     | { type: ActionType.PASTE_SAMPLE };

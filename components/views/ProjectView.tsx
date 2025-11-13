@@ -129,49 +129,49 @@ const ProjectView: React.FC<ProjectViewProps> = ({ loadSampleFromBlob }) => {
         <div className="flex flex-col h-full p-2 space-y-4">
             <h2 className="text-xl font-bold text-center flex-shrink-0">Project Management</h2>
 
-            <div className="bg-slate-800 p-4 rounded-lg space-y-3">
+            <div className="bg-white shadow-md p-4 rounded-lg space-y-3">
                 <h3 className="font-bold">Save Current Project</h3>
                 <div className="flex space-x-2">
                     <input
                         type="text"
                         value={projectName}
                         onChange={(e) => setProjectName(e.target.value)}
-                        className="bg-slate-700 text-white rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-pink-400"
                         placeholder="Project Name"
                     />
-                    <button onClick={handleSave} className="bg-sky-600 hover:bg-sky-500 text-white font-bold px-4 py-2 rounded">
+                    <button onClick={handleSave} className="bg-pink-400 hover:bg-pink-500 text-white font-bold px-4 py-2 rounded">
                         Save
                     </button>
                 </div>
             </div>
 
-            <div className="bg-slate-800 p-4 rounded-lg space-y-3 flex-grow flex flex-col min-h-0">
+            <div className="bg-white shadow-md p-4 rounded-lg space-y-3 flex-grow flex flex-col min-h-0">
                 <h3 className="font-bold">Load Project</h3>
                 <ul className="space-y-2 overflow-y-auto pr-2">
                     {projects?.map(p => (
-                        <li key={p.id} className="flex items-center justify-between bg-slate-700 p-2 rounded">
+                        <li key={p.id} className="flex items-center justify-between bg-emerald-100 p-2 rounded">
                             <div>
                                 <p className="font-semibold">{p.name}</p>
-                                <p className="text-xs text-slate-400">{p.createdAt.toLocaleString()}</p>
+                                <p className="text-xs text-slate-500">{p.createdAt.toLocaleString()}</p>
                             </div>
                             <div className="space-x-2">
-                                <button onClick={() => handleLoad(p.id!)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded text-sm">Load</button>
-                                <button onClick={() => handleDelete(p.id!)} className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1 rounded text-sm">Del</button>
+                                <button onClick={() => handleLoad(p.id!)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-3 py-1 rounded text-sm">Load</button>
+                                <button onClick={() => handleDelete(p.id!)} className="bg-rose-500 hover:bg-rose-600 text-white font-bold px-3 py-1 rounded text-sm">Del</button>
                             </div>
                         </li>
                     ))}
-                    {projects?.length === 0 && <p className="text-slate-400 text-center py-4">No saved projects.</p>}
+                    {projects?.length === 0 && <p className="text-slate-500 text-center py-4">No saved projects.</p>}
                 </ul>
             </div>
 
-            <div className="bg-slate-800 p-4 rounded-lg space-y-3">
+            <div className="bg-white shadow-md p-4 rounded-lg space-y-3">
                 <h3 className="font-bold">Import Audio</h3>
-                <p className="text-sm text-slate-400">Import an audio file to the currently selected sample pad.</p>
+                <p className="text-sm text-slate-500">Import an audio file to the currently selected sample pad.</p>
                 <input
                     type="file"
                     accept="audio/*"
                     onChange={handleFileImport}
-                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
+                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pink-100 file:text-pink-700 hover:file:bg-pink-200"
                 />
             </div>
         </div>

@@ -1,3 +1,4 @@
+
 import React, { useContext, useState } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, Pattern } from '../../types';
@@ -29,17 +30,17 @@ const PatternSettings: React.FC<{
     const currentLoopPreset = LOOP_PRESETS.find(p => p.a === activePattern.loopCountA && p.b === activePattern.loopCountB);
 
     return (
-        <div className="flex-shrink-0 bg-slate-800 p-2 rounded-lg space-y-2">
+        <div className="flex-shrink-0 bg-white shadow-md p-2 rounded-lg space-y-2">
             <div className="grid grid-cols-2 gap-x-2">
                 {/* Part A */}
-                <div className="bg-slate-900/50 p-2 rounded-md space-y-2">
-                    <label className="text-xs font-bold text-slate-300">PART A</label>
+                <div className="bg-emerald-50/80 p-2 rounded-md space-y-2">
+                    <label className="text-xs font-bold text-slate-600">PART A</label>
                     <div className="grid grid-cols-4 gap-1">
                         {RATE_VALUES.map(rate => (
                             <button
                                 key={`a-${rate}`}
                                 onClick={() => updatePatternParams({ stepResolutionA: rate })}
-                                className={`py-2 text-xs font-bold rounded transition-colors ${activePattern.stepResolutionA === rate ? 'bg-amber-500 text-black' : 'bg-slate-700 hover:bg-slate-600'}`}>
+                                className={`py-2 text-xs font-bold rounded transition-colors ${activePattern.stepResolutionA === rate ? 'bg-pink-400 text-white' : 'bg-emerald-200 hover:bg-emerald-300'}`}>
                                 {rate}
                             </button>
                         ))}
@@ -47,14 +48,14 @@ const PatternSettings: React.FC<{
                     <Fader label="Len" value={activePattern.stepLengthA} onChange={val => updatePatternParams({ stepLengthA: val })} min={1} max={16} step={1} defaultValue={16} displayPrecision={0} />
                 </div>
                 {/* Part B */}
-                <div className="bg-slate-900/50 p-2 rounded-md space-y-2">
-                    <label className="text-xs font-bold text-slate-300">PART B</label>
+                <div className="bg-emerald-50/80 p-2 rounded-md space-y-2">
+                    <label className="text-xs font-bold text-slate-600">PART B</label>
                      <div className="grid grid-cols-4 gap-1">
                          {RATE_VALUES.map(rate => (
                             <button
                                 key={`b-${rate}`}
                                 onClick={() => updatePatternParams({ stepResolutionB: rate })}
-                                className={`py-2 text-xs font-bold rounded transition-colors ${activePattern.stepResolutionB === rate ? 'bg-amber-500 text-black' : 'bg-slate-700 hover:bg-slate-600'}`}>
+                                className={`py-2 text-xs font-bold rounded transition-colors ${activePattern.stepResolutionB === rate ? 'bg-pink-400 text-white' : 'bg-emerald-200 hover:bg-emerald-300'}`}>
                                 {rate}
                             </button>
                         ))}
@@ -65,11 +66,11 @@ const PatternSettings: React.FC<{
 
             {/* Loop Controls */}
              <div className="flex items-center space-x-2">
-                <label className="text-sm font-bold text-slate-300 flex-shrink-0">LOOP</label>
+                <label className="text-sm font-bold text-slate-600 flex-shrink-0">LOOP</label>
                 <select
                     onChange={handleLoopChange}
                     value={currentLoopPreset?.label || ''}
-                    className="bg-slate-700 text-white rounded p-1.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    className="bg-emerald-200 text-emerald-800 rounded p-1.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
                 >
                     {LOOP_PRESETS.map(p => <option key={p.label} value={p.label}>{p.label}</option>)}
                 </select>
@@ -144,21 +145,26 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
             <PatternSettings activePattern={activePattern} updatePatternParams={updatePatternParams} />
 
             {/* Step Sequencer Grid */}
-            <div className="bg-slate-800 p-2 rounded-lg">
+            <div className="bg-white shadow-md p-2 rounded-lg">
                 <div className="grid grid-cols-8 gap-1.5">
                     {Array.from({ length: STEPS_PER_PART * 2 }).map((_, stepIndex) => {
                         const isStepOn = activePattern.steps[sampleId]?.[stepIndex];
                         const isCurrentStep = currentStep === stepIndex;
                         const isPartB = stepIndex >= STEPS_PER_PART;
                         
-                        let baseClasses = 'w-full h-6 rounded-sm transition-colors';
-                        let colorClasses = isStepOn ? 'bg-sky-500' : 'bg-slate-700';
+                        let colorClasses;
                         if (isPartB) {
-                            colorClasses = isStepOn ? 'bg-indigo-500' : 'bg-slate-600/70';
+                            // Part B uses fuchsia for "on" steps
+                            colorClasses = isStepOn ? 'bg-fuchsia-400' : 'bg-emerald-100';
+                        } else {
+                            // Part A uses pink for "on" steps
+                            colorClasses = isStepOn ? 'bg-pink-400' : 'bg-emerald-200';
                         }
-                        if(isCurrentStep) {
-                            colorClasses = isStepOn ? 'bg-amber-400 brightness-125' : 'bg-amber-600/50';
+                        
+                        if (isCurrentStep) {
+                            colorClasses = isStepOn ? 'bg-lime-300 brightness-125' : 'bg-lime-400/50';
                         }
+                        const baseClasses = 'w-full h-6 rounded-sm transition-colors';
 
                         return (
                             <button
@@ -173,21 +179,21 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
             
             {/* Bottom controls */}
             <div className="grid grid-cols-2 gap-2">
-                <div className="bg-slate-800 p-2 rounded-lg flex flex-col space-y-2">
+                <div className="bg-white shadow-md p-2 rounded-lg flex flex-col space-y-2">
                      <BankSelector type="sample" />
                     <div className="grid grid-cols-4 gap-2">
                         {Array.from({ length: PADS_PER_BANK }).map((_, i) => (
-                             <Pad key={i} id={sampleBankOffset + i} label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleBankOffset + i} hasContent={!!samples[sampleBankOffset + i].buffer} />
+                             <Pad key={i} id={sampleBankOffset + i} label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleBankOffset + i} hasContent={!!samples[sampleBankOffset + i].buffer} padType="sample" />
                         ))}
                     </div>
                 </div>
-                 <div className="bg-slate-800 p-2 rounded-lg flex flex-col space-y-2">
+                 <div className="bg-white shadow-md p-2 rounded-lg flex flex-col space-y-2">
                     <div className="flex justify-center space-x-1">
                         {[0, 1, 2, 3].map(bankIndex => (
                             <button
                                 key={bankIndex}
                                 onClick={() => setPatternViewBank(bankIndex)}
-                                className={`px-3 py-1 text-xs font-bold rounded transition-colors ${patternViewBank === bankIndex ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300'}`}
+                                className={`px-3 py-1 text-xs font-bold rounded transition-colors ${patternViewBank === bankIndex ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
                             >
                                 {bankIndex + 1}
                             </button>
@@ -198,7 +204,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                             const globalPatternId = patternBankOffsetForView + i;
                             const localPatternNum = (patternViewBank * PADS_PER_BANK) + i + 1;
                             const isActive = state.activePatternIds[activeSampleBank] === globalPatternId;
-                            return <Pad key={i} id={globalPatternId} label={`P${localPatternNum}`} onClick={handlePatternPadClick} isActive={isActive} hasContent={patterns[globalPatternId]?.steps.some(row => row.some(step => step))} />
+                            return <Pad key={i} id={globalPatternId} label={`P${localPatternNum}`} onClick={handlePatternPadClick} isActive={isActive} hasContent={patterns[globalPatternId]?.steps.some(row => row.some(step => step))} padType="pattern" />
                         })}
                     </div>
                 </div>

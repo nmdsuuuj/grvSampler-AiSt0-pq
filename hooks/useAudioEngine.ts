@@ -7,7 +7,8 @@ const RAMP_TIME = 0.005; // 5ms ramp for all parameter changes to prevent clicks
 
 // Custom hook to get the previous value of a prop or state
 const usePrevious = <T,>(value: T): T | undefined => {
-    const ref = useRef<T>();
+    // FIX: Explicitly initialize useRef with undefined to fix "Expected 1 arguments, but got 0" error.
+    const ref = useRef<T | undefined>(undefined);
     useEffect(() => {
         ref.current = value;
     });
@@ -17,9 +18,11 @@ const usePrevious = <T,>(value: T): T | undefined => {
 
 export const useAudioEngine = () => {
     const { state, dispatch } = useContext(AppContext);
-    const { audioContext, samples, bankVolumes, isRecording, isArmed, recordingThreshold, activeSampleId } = state;
+    const { audioContext, samples, bankVolumes, bankPans, bankMutes, bankSolos, isRecording, isArmed, recordingThreshold, activeSampleId, masterVolume } = state;
     
+    const masterGainRef = useRef<GainNode | null>(null);
     const bankGainsRef = useRef<GainNode[]>([]);
+    const bankPannersRef = useRef<StereoPannerNode[]>([]);
     const sampleGainsRef = useRef<GainNode[]>([]);
     const activeSourcesRef = useRef<Map<number, Set<AudioBufferSourceNode>>>(new Map());
 
@@ -29,7 +32,7 @@ export const useAudioEngine = () => {
         stateRef.current = state;
     }, [state]);
     
-    // Refs for recording
+    // Refs for sample recording
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const streamRef = useRef<MediaStream | null>(null);
@@ -37,18 +40,35 @@ export const useAudioEngine = () => {
     const analyserRef = useRef<AnalyserNode | null>(null);
     const animationFrameRef = useRef<number | null>(null);
 
+    // Refs for master recording
+    const masterDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+    const masterRecorderRef = useRef<MediaRecorder | null>(null);
+    const masterChunksRef = useRef<Blob[]>([]);
+
+
     // Get previous state for efficient diffing
     const prevSamples = usePrevious(samples);
-    const prevBankVolumes = usePrevious(bankVolumes);
 
     // --- Initialize core audio graph (runs once) ---
     useEffect(() => {
-        if (audioContext && bankGainsRef.current.length === 0) {
+        if (audioContext && masterGainRef.current === null) {
+             // Master Gain
+            const masterGain = audioContext.createGain();
+            masterGain.connect(audioContext.destination);
+            masterGainRef.current = masterGain;
+
             for (let i = 0; i < TOTAL_BANKS; i++) {
                 const gainNode = audioContext.createGain();
                 gainNode.gain.value = state.bankVolumes[i];
-                gainNode.connect(audioContext.destination);
+                
+                const pannerNode = audioContext.createStereoPanner();
+                pannerNode.pan.value = state.bankPans[i];
+
+                gainNode.connect(pannerNode);
+                pannerNode.connect(masterGainRef.current); // Connect to master instead of destination
+
                 bankGainsRef.current.push(gainNode);
+                bankPannersRef.current.push(pannerNode);
             }
             for (let i = 0; i < TOTAL_SAMPLES; i++) {
                 const sampleGainNode = audioContext.createGain();
@@ -64,52 +84,77 @@ export const useAudioEngine = () => {
     // --- State Synchronization Effect ---
     // This single effect efficiently syncs any changes from the React state to the Web Audio API.
     useEffect(() => {
-        if (!audioContext || sampleGainsRef.current.length === 0 || !prevSamples || !prevBankVolumes) {
+        if (!audioContext || sampleGainsRef.current.length === 0) {
             return;
         }
         const now = audioContext.currentTime;
 
-        // 1. Sync Sample Parameters (Volume & Pitch) by comparing current and previous states
-        samples.forEach((currentSample, i) => {
-            const prevSample = prevSamples[i];
-            if (!prevSample) return;
+        // 1. Sync Sample Parameters (Volume & Pitch)
+        if (prevSamples) {
+            samples.forEach((currentSample, i) => {
+                const prevSample = prevSamples[i];
+                if (!prevSample) return;
 
-            // Sync Volume if it changed
-            if (currentSample.volume !== prevSample.volume) {
-                const gainNode = sampleGainsRef.current[i];
-                if (gainNode) {
-                    gainNode.gain.cancelScheduledValues(now);
-                    gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-                    gainNode.gain.linearRampToValueAtTime(currentSample.volume, now + RAMP_TIME);
+                // Sync Volume
+                if (currentSample.volume !== prevSample.volume) {
+                    const gainNode = sampleGainsRef.current[i];
+                    if (gainNode) {
+                        gainNode.gain.cancelScheduledValues(now);
+                        gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+                        gainNode.gain.linearRampToValueAtTime(currentSample.volume, now + RAMP_TIME);
+                    }
                 }
+                
+                // Sync Pitch
+                if (currentSample.pitch !== prevSample.pitch) {
+                    const activeSampleSources = activeSourcesRef.current.get(i);
+                    if (activeSampleSources) {
+                        activeSampleSources.forEach(source => {
+                            source.detune.cancelScheduledValues(now);
+                            source.detune.setValueAtTime(source.detune.value, now);
+                            source.detune.linearRampToValueAtTime(currentSample.pitch * 100, now + RAMP_TIME);
+                        });
+                    }
+                }
+            });
+        }
+
+        // 2. Sync Bank Volumes (with Mute/Solo logic)
+        const isAnyBankSoloed = bankSolos.some(s => s);
+        for (let i = 0; i < TOTAL_BANKS; i++) {
+            const gainNode = bankGainsRef.current[i];
+            if (gainNode) {
+                let targetVolume = bankVolumes[i];
+                if (isAnyBankSoloed) {
+                    if (!bankSolos[i]) targetVolume = 0;
+                } else {
+                    if (bankMutes[i]) targetVolume = 0;
+                }
+                
+                gainNode.gain.cancelScheduledValues(now);
+                gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+                gainNode.gain.linearRampToValueAtTime(targetVolume, now + RAMP_TIME);
             }
-            
-            // Sync Pitch if it changed, applying it to any currently playing voices for that sample
-            if (currentSample.pitch !== prevSample.pitch) {
-                const activeSampleSources = activeSourcesRef.current.get(i);
-                if (activeSampleSources) {
-                    activeSampleSources.forEach(source => {
-                        source.detune.cancelScheduledValues(now);
-                        source.detune.setValueAtTime(source.detune.value, now);
-                        source.detune.linearRampToValueAtTime(currentSample.pitch * 100, now + RAMP_TIME);
-                    });
-                }
+        }
+        
+        // 3. Sync Bank Pans
+        bankPans.forEach((pan, i) => {
+            const pannerNode = bankPannersRef.current[i];
+            if (pannerNode) {
+                pannerNode.pan.cancelScheduledValues(now);
+                pannerNode.pan.setValueAtTime(pannerNode.pan.value, now);
+                pannerNode.pan.linearRampToValueAtTime(pan, now + RAMP_TIME);
             }
         });
+        
+        // 4. Sync Master Volume
+        if (masterGainRef.current) {
+            masterGainRef.current.gain.cancelScheduledValues(now);
+            masterGainRef.current.gain.setValueAtTime(masterGainRef.current.gain.value, now);
+            masterGainRef.current.gain.linearRampToValueAtTime(masterVolume, now + RAMP_TIME);
+        }
 
-        // 2. Sync Bank Volumes if they changed
-        bankVolumes.forEach((volume, i) => {
-            if(volume !== prevBankVolumes[i]) {
-                const gainNode = bankGainsRef.current[i];
-                 if (gainNode) {
-                    gainNode.gain.cancelScheduledValues(now);
-                    gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-                    gainNode.gain.linearRampToValueAtTime(volume, now + RAMP_TIME);
-                }
-            }
-        });
-
-    }, [samples, bankVolumes, audioContext]);
+    }, [samples, bankVolumes, bankPans, bankMutes, bankSolos, masterVolume, audioContext, prevSamples]);
     
 
     const playSample = useCallback((sampleId: number, scheduleTime: number) => {
@@ -202,7 +247,7 @@ export const useAudioEngine = () => {
     }, []);
 
     const startRecording = useCallback(async () => {
-        const { isArmed: armed, isRecording: recording, audioContext: ctx, recordingThreshold: threshold, activeSampleId: currentSampleId, samples: currentSamples } = stateRef.current;
+        const { isArmed: armed, isRecording: recording, audioContext: ctx, recordingThreshold: threshold } = stateRef.current;
         if (armed || recording || !ctx) return;
         dispatch({ type: ActionType.SET_ARMED_STATE, payload: true });
 
@@ -273,5 +318,60 @@ export const useAudioEngine = () => {
         }
     }, [dispatch, cleanupListener]);
 
-    return { playSample, loadSampleFromBlob, startRecording, stopRecording };
+    const startMasterRecording = useCallback(() => {
+        const { isMasterRecording, audioContext: ctx } = stateRef.current;
+        if (isMasterRecording || !ctx || !masterGainRef.current) return;
+
+        if (!masterDestinationRef.current) {
+            masterDestinationRef.current = ctx.createMediaStreamDestination();
+        }
+        masterGainRef.current.connect(masterDestinationRef.current);
+
+        const recorder = new MediaRecorder(masterDestinationRef.current.stream);
+        masterRecorderRef.current = recorder;
+        masterChunksRef.current = [];
+
+        recorder.ondataavailable = (event) => {
+            masterChunksRef.current.push(event.data);
+        };
+
+        recorder.onstop = () => {
+            const blob = new Blob(masterChunksRef.current, { type: 'audio/wav' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            document.body.appendChild(a);
+            a.style.display = 'none';
+            a.href = url;
+            const { bpm } = stateRef.current;
+            const d = new Date();
+            const year = String(d.getFullYear()).slice(-2);
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            const seconds = String(d.getSeconds()).padStart(2, '0');
+            
+            const timestamp = `${year}${month}${day}_${hours}${minutes}${seconds}`;
+            const bpmString = `B${Math.round(bpm)}`;
+
+            a.download = `GrvSmp_${timestamp}_${bpmString}.wav`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            masterGainRef.current?.disconnect(masterDestinationRef.current);
+        };
+
+        recorder.start();
+        dispatch({ type: ActionType.TOGGLE_MASTER_RECORDING });
+    }, [dispatch]);
+
+    const stopMasterRecording = useCallback(() => {
+        const { isMasterRecording } = stateRef.current;
+        if (!isMasterRecording || !masterRecorderRef.current || masterRecorderRef.current.state !== 'recording') return;
+
+        masterRecorderRef.current.stop();
+        dispatch({ type: ActionType.TOGGLE_MASTER_RECORDING });
+    }, [dispatch]);
+
+    return { playSample, loadSampleFromBlob, startRecording, stopRecording, startMasterRecording, stopMasterRecording };
 };

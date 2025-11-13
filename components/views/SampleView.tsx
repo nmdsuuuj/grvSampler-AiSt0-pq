@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useEffect, useRef } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType } from '../../types';
@@ -165,10 +166,10 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
     };
 
     let buttonLabel = 'ARM';
-    let buttonClasses = 'bg-slate-600';
+    let buttonClasses = 'bg-emerald-300';
     if (isArmed) {
         buttonLabel = 'ARMED';
-        buttonClasses = 'bg-yellow-500 text-black animate-pulse';
+        buttonClasses = 'bg-yellow-400 text-slate-800 animate-pulse';
     }
     if (isRecording) {
         buttonLabel = 'STOP';
@@ -187,10 +188,10 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
                         value={localName}
                         onChange={handleNameChange}
                         onBlur={handleNameBlur}
-                        className="bg-transparent text-lg font-bold w-full focus:outline-none focus:bg-slate-800 rounded px-2 py-1"
+                        className="bg-transparent text-lg font-bold w-full focus:outline-none focus:bg-emerald-100 rounded px-2 py-1"
                     />
                      {!activeSample.buffer && (
-                        <span className="text-sm text-slate-500 font-medium flex-shrink-0 pr-2">(EMPTY)</span>
+                        <span className="text-sm text-slate-400 font-medium flex-shrink-0 pr-2">(EMPTY)</span>
                     )}
                     <button onClick={handleRecordClick} className={`px-4 py-3 text-sm font-bold rounded transition-colors ${buttonClasses} flex-shrink-0 w-24 text-center`}>
                         {buttonLabel}
@@ -226,29 +227,30 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
                                 hasContent={!!sample.buffer}
                                 isArmed={isArmed && activeSampleId === sampleId}
                                 isRecording={isRecording && activeSampleId === sampleId}
+                                padType="sample"
                             />
                         );
                     })}
                 </div>
             </div>
 
-            <div className="space-y-4 bg-slate-800 p-4 rounded-lg flex flex-col justify-center flex-grow">
+            <div className="space-y-4 bg-white shadow-md p-4 rounded-lg flex flex-col justify-center flex-grow">
                 <div className="flex space-x-2 items-center flex-wrap gap-y-2">
-                    <h3 className="text-lg font-bold text-slate-300">Parameters</h3>
-                     <button onClick={() => dispatch({ type: ActionType.COPY_SAMPLE })} className="bg-slate-600 hover:bg-slate-500 text-white font-bold px-3 py-1.5 rounded text-xs">
+                    <h3 className="text-lg font-bold text-slate-700">Parameters</h3>
+                     <button onClick={() => dispatch({ type: ActionType.COPY_SAMPLE })} className="bg-emerald-300 hover:bg-emerald-400 text-slate-800 font-bold px-3 py-1.5 rounded text-xs">
                         Copy
                     </button>
                      <button 
                         onClick={() => dispatch({ type: ActionType.PASTE_SAMPLE })} 
-                        className="bg-slate-600 hover:bg-slate-500 text-white font-bold px-3 py-1.5 rounded text-xs disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        className="bg-emerald-300 hover:bg-emerald-400 text-slate-800 font-bold px-3 py-1.5 rounded text-xs disabled:bg-emerald-100 disabled:text-emerald-400 disabled:cursor-not-allowed"
                         disabled={!sampleClipboard}
                      >
                         Paste
                     </button>
-                    <button onClick={handleFileImportClick} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded text-xs">
+                    <button onClick={handleFileImportClick} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-3 py-1.5 rounded text-xs">
                        Import
                     </button>
-                    <button onClick={handleExport} className="bg-sky-600 hover:bg-sky-500 text-white font-bold px-3 py-1.5 rounded text-xs">
+                    <button onClick={handleExport} className="bg-pink-400 hover:bg-pink-500 text-white font-bold px-3 py-1.5 rounded text-xs">
                         Export WAV
                     </button>
                 </div>

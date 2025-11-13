@@ -9,8 +9,8 @@ interface TabButtonProps {
 
 const TabButton: React.FC<TabButtonProps> = ({ label, isActive, onClick }) => {
   const baseClasses = "w-full py-3 text-sm font-bold rounded-lg transition-colors duration-200 focus:outline-none";
-  const activeClasses = "bg-sky-600 text-white";
-  const inactiveClasses = "bg-slate-700 text-slate-300 hover:bg-slate-600";
+  const activeClasses = "bg-pink-400 text-white";
+  const inactiveClasses = "bg-emerald-200 text-emerald-800 hover:bg-emerald-300";
 
   return (
     <button

@@ -11,6 +11,7 @@ interface PadProps {
   isRecording?: boolean;
   isArmed?: boolean;
   hasContent?: boolean;
+  padType?: 'sample' | 'pattern' | 'groove';
 }
 
 const Pad: React.FC<PadProps> = ({
@@ -22,15 +23,29 @@ const Pad: React.FC<PadProps> = ({
   isRecording = false,
   isArmed = false,
   hasContent = false,
+  padType = 'sample',
 }) => {
   const baseClasses = `${PAD_SIZE} flex items-center justify-center rounded-md text-xs font-bold transition-all duration-100 focus:outline-none border-2`;
   
-  let colorClasses = 'bg-slate-700 border-slate-600 text-slate-300';
-  if (hasContent) colorClasses = 'bg-sky-800 border-sky-700 text-sky-200';
-  if (isActive) colorClasses = 'bg-amber-500 border-amber-400 text-slate-900 ring-2 ring-amber-300 ring-offset-2 ring-offset-slate-900';
-  if (isArmed) colorClasses = 'bg-yellow-500 border-yellow-400 text-slate-900 animate-pulse';
-  if (isPlaying) colorClasses = 'bg-lime-400 border-lime-300 text-slate-900 scale-105';
-  if (isRecording) colorClasses = 'bg-rose-500 border-rose-400 text-white scale-105 animate-pulse';
+  let colorClasses = 'bg-emerald-200 border-emerald-300 text-emerald-800';
+  if (hasContent) colorClasses = 'bg-emerald-500 border-emerald-600 text-white';
+  
+  if (isActive) {
+    switch (padType) {
+        case 'sample':
+            colorClasses = 'bg-sky-400 border-sky-500 text-white ring-2 ring-sky-300 ring-offset-2 ring-offset-emerald-50';
+            break;
+        case 'pattern':
+        case 'groove':
+        default:
+             colorClasses = 'bg-pink-400 border-pink-500 text-white ring-2 ring-pink-300 ring-offset-2 ring-offset-emerald-50';
+            break;
+    }
+  }
+
+  if (isArmed) colorClasses = 'bg-yellow-400 border-yellow-500 text-slate-800 animate-pulse';
+  if (isPlaying) colorClasses = 'bg-lime-300 border-lime-400 text-slate-800 scale-105';
+  if (isRecording) colorClasses = 'bg-rose-500 border-rose-600 text-white scale-105 animate-pulse';
 
 
   return (

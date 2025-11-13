@@ -38,6 +38,12 @@ const initialState: AppState = {
     activePatternIds: Array(TOTAL_BANKS).fill(0).map((_, i) => i * (TOTAL_PATTERNS / TOTAL_BANKS)), // Bank A gets P1 (id 0), B gets P33 (id 32), etc.
     grooves: GROOVE_PATTERNS,
     bankVolumes: Array(TOTAL_BANKS).fill(1),
+    bankPans: Array(TOTAL_BANKS).fill(0),
+    bankMutes: Array(TOTAL_BANKS).fill(false),
+    bankSolos: Array(TOTAL_BANKS).fill(false),
+    masterVolume: 1,
+    isMasterRecording: false,
+    isMasterRecArmed: false,
     sampleClipboard: null,
 };
 
@@ -124,6 +130,31 @@ const appReducer = (state: AppState, action: Action): AppState => {
             newBankVolumes[bankIndex] = volume;
             return { ...state, bankVolumes: newBankVolumes };
         }
+        case ActionType.SET_BANK_PAN: {
+            const { bankIndex, pan } = action.payload;
+            const newBankPans = [...state.bankPans];
+            newBankPans[bankIndex] = pan;
+            return { ...state, bankPans: newBankPans };
+        }
+        case ActionType.TOGGLE_BANK_MUTE: {
+            const { bankIndex } = action.payload;
+            const newBankMutes = [...state.bankMutes];
+            newBankMutes[bankIndex] = !newBankMutes[bankIndex];
+            return { ...state, bankMutes: newBankMutes };
+        }
+        case ActionType.TOGGLE_BANK_SOLO: {
+            const { bankIndex } = action.payload;
+            const newBankSolos = [...state.bankSolos];
+            newBankSolos[bankIndex] = !newBankSolos[bankIndex];
+            return { ...state, bankSolos: newBankSolos };
+        }
+        case ActionType.SET_MASTER_VOLUME:
+            return { ...state, masterVolume: action.payload };
+        case ActionType.TOGGLE_MASTER_RECORDING:
+            return { ...state, isMasterRecording: !state.isMasterRecording };
+        case ActionType.TOGGLE_MASTER_REC_ARMED:
+            if (state.isMasterRecording) return state; // Can't change arm state while recording
+            return { ...state, isMasterRecArmed: !state.isMasterRecArmed };
         case ActionType.COPY_SAMPLE: {
             const sampleToCopy = state.samples.find(s => s.id === state.activeSampleId);
             return { ...state, sampleClipboard: sampleToCopy || null };

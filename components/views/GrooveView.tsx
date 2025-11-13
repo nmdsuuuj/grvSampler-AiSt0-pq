@@ -1,3 +1,4 @@
+
 import React, { useContext } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType } from '../../types';
@@ -31,10 +32,10 @@ const GrooveView: React.FC = () => {
 
             <div className="flex-grow grid grid-cols-2 gap-4 mt-2">
                 {/* Left Column: Fader */}
-                <div className="bg-slate-800 p-4 rounded-lg flex flex-col justify-between">
+                <div className="bg-white shadow-md p-4 rounded-lg flex flex-col justify-between">
                      <div className="text-center flex-shrink-0">
-                        <p className="text-sm text-slate-400">Current</p>
-                        <p className="font-bold text-lg text-amber-400 truncate" title={activeGroove?.name || 'None'}>
+                        <p className="text-sm text-slate-500">Current</p>
+                        <p className="font-bold text-lg text-pink-500 truncate" title={activeGroove?.name || 'None'}>
                             {activeGroove?.name || 'None'}
                         </p>
                     </div>
@@ -52,7 +53,7 @@ const GrooveView: React.FC = () => {
                             isVertical={true}
                         />
                     </div>
-                    <div className="text-xs text-slate-500 text-center pt-2 flex-shrink-0">
+                    <div className="text-xs text-slate-400 text-center pt-2 flex-shrink-0">
                         <p>Adjusts timing & feel.</p>
                         <p>Dbl-tap fader to reset.</p>
                     </div>
@@ -73,6 +74,7 @@ const GrooveView: React.FC = () => {
                                     onClick={handleGroovePadClick}
                                     isActive={activeGrooveId === grooveId}
                                     hasContent={true}
+                                    padType="groove"
                                 />
                             );
                         })}

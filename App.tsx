@@ -47,6 +47,8 @@ const App: React.FC = () => {
     loadSampleFromBlob, 
     startRecording, 
     stopRecording,
+    startMasterRecording,
+    stopMasterRecording,
   } = useAudioEngine();
   useSequencer(playSample);
 
@@ -59,7 +61,7 @@ const App: React.FC = () => {
       case 'GROOVE':
         return <GrooveView />;
       case 'MIXER':
-          return <MixerView />;
+          return <MixerView startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />;
       case 'PROJECT':
         return <ProjectView loadSampleFromBlob={loadSampleFromBlob} />;
       default:
@@ -68,23 +70,23 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="bg-slate-900 text-slate-100 flex flex-col h-screen font-sans w-full max-w-md mx-auto">
+    <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto">
       {/* Header / Transport */}
-      <header className="flex-shrink-0 p-2 bg-slate-800/50">
-        <Transport />
+      <header className="flex-shrink-0 p-2 bg-emerald-100/50">
+        <Transport startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />
       </header>
 
       {/* Main Content */}
       <main className="flex-grow min-h-0">
         {state.isInitialized ? renderView() : (
            <div className="flex items-center justify-center h-full">
-            <p className="text-slate-400 text-lg">Click anywhere to start the audio engine...</p>
+            <p className="text-slate-500 text-lg">Click anywhere to start the audio engine...</p>
           </div>
         )}
       </main>
 
       {/* Footer / View Tabs */}
-      <footer className="flex-shrink-0 p-1 bg-slate-800/50">
+      <footer className="flex-shrink-0 p-1 bg-emerald-100/50">
         <div className="grid grid-cols-5 gap-1">
           <TabButton label="SAMPLE" isActive={activeView === 'SAMPLE'} onClick={() => setActiveView('SAMPLE')} />
           <TabButton label="SEQ" isActive={activeView === 'SEQ'} onClick={() => setActiveView('SEQ')} />
