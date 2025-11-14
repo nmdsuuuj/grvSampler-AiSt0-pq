@@ -1,6 +1,6 @@
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType, Sample } from '../types';
+import { ActionType, Sample, PlaybackParams } from '../types';
 import { PADS_PER_BANK, TOTAL_BANKS, TOTAL_SAMPLES } from '../constants';
 
 const RAMP_TIME = 0.005; // 5ms ramp for all parameter changes to prevent clicks
@@ -14,17 +14,6 @@ const usePrevious = <T,>(value: T): T | undefined => {
     });
     return ref.current;
 };
-
-interface PlaybackParams {
-    note: number | null;
-    velocity: number;
-    volume: number;
-    pitch: number;
-    start: number;
-    decay: number;
-    lpFreq: number;
-    hpFreq: number;
-}
 
 export const useAudioEngine = () => {
     const { state, dispatch } = useContext(AppContext);
@@ -222,7 +211,7 @@ export const useAudioEngine = () => {
     }, [samples, bankVolumes, bankPans, bankMutes, bankSolos, masterVolume, audioContext, prevSamples, masterCompressorOn, masterCompressorParams]);
     
 
-    const playSample = useCallback((sampleId: number, scheduleTime: number, playbackParams?: PlaybackParams) => {
+    const playSample = useCallback((sampleId: number, scheduleTime: number, playbackParams?: Partial<PlaybackParams>) => {
         const { audioContext: ctx, samples: currentSamples } = stateRef.current;
         if (!ctx || lpFilterNodesRef.current.length === 0) return;
         
@@ -243,7 +232,7 @@ export const useAudioEngine = () => {
         const sampleGainNode = sampleGainsRef.current[sampleId];
         envelopeGainNode.connect(lpNode);
         
-        const params = playbackParams || {
+        const baseParams: PlaybackParams = {
             note: null,
             velocity: 1,
             volume: sample.volume,
@@ -253,6 +242,8 @@ export const useAudioEngine = () => {
             lpFreq: sample.lpFreq,
             hpFreq: sample.hpFreq
         };
+
+        const params = { ...baseParams, ...playbackParams };
 
         // --- Apply parameters ---
         // Base sample gain (channel volume)

@@ -1,3 +1,4 @@
+
 import React, { createContext, useReducer, Dispatch } from 'react';
 import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
@@ -19,7 +20,7 @@ const initialState: AppState = {
     isArmed: false,
     recordingThreshold: 0.02,
     bpm: 120,
-    currentStep: -1,
+    currentSteps: Array(TOTAL_BANKS).fill(-1),
     activeSampleId: 0,
     activeSampleBank: 0,
     activeGrooveId: 0,
@@ -65,6 +66,7 @@ const initialState: AppState = {
         attack: 0.003,
         release: 0.25,
     },
+    playbackTrackStates: Array.from({ length: TOTAL_BANKS }, () => ({ currentPart: 'A', partRepetition: 0 })),
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -72,11 +74,21 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case ActionType.INITIALIZE_AUDIO:
             return { ...state, audioContext: action.payload, isInitialized: true };
         case ActionType.TOGGLE_PLAY:
-            return { ...state, isPlaying: !state.isPlaying };
+            const isNowPlaying = !state.isPlaying;
+            return { 
+                ...state, 
+                isPlaying: isNowPlaying,
+                // Reset steps when stopping playback
+                currentSteps: isNowPlaying ? state.currentSteps : Array(TOTAL_BANKS).fill(-1),
+            };
         case ActionType.SET_BPM:
             return { ...state, bpm: action.payload };
-        case ActionType.SET_CURRENT_STEP:
-            return { ...state, currentStep: action.payload };
+        case ActionType.SET_CURRENT_STEP: {
+            const { bankIndex, step } = action.payload;
+            const newCurrentSteps = [...state.currentSteps];
+            newCurrentSteps[bankIndex] = step;
+            return { ...state, currentSteps: newCurrentSteps };
+        }
         case ActionType.SET_ACTIVE_SAMPLE:
             return { ...state, activeSampleId: action.payload, activeSampleBank: Math.floor(action.payload / PADS_PER_BANK) };
         case ActionType.SET_ACTIVE_SAMPLE_BANK:
@@ -123,6 +135,27 @@ const appReducer = (state: AppState, action: Action): AppState => {
                     }
                     return p;
                 }),
+            };
+        }
+        case ActionType.RECORD_STEP: {
+            const { patternId, sampleId, step, note } = action.payload;
+            if (step < 0) return state; // Guard against invalid step index
+            return {
+                ...state,
+                patterns: state.patterns.map(p => {
+                    if (p.id === patternId) {
+                        const newSteps = [...p.steps];
+                        const newSampleSteps = [...newSteps[sampleId]];
+                        newSampleSteps[step] = {
+                            ...newSampleSteps[step],
+                            active: true,
+                            note: note, // Record the specific note from the keyboard
+                        };
+                        newSteps[sampleId] = newSampleSteps;
+                        return { ...p, steps: newSteps };
+                    }
+                    return p;
+                })
             };
         }
         case ActionType.UPDATE_STEP_NOTE: {
@@ -201,7 +234,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
         }
         case ActionType.LOAD_PROJECT_STATE:
              // Keep audioContext, but load everything else
-            return { ...state, ...action.payload, audioContext: state.audioContext, isPlaying: false, currentStep: -1, isRecording: false, isArmed: false };
+            return { ...state, ...action.payload, audioContext: state.audioContext, isPlaying: false, currentSteps: Array(TOTAL_BANKS).fill(-1), isRecording: false, isArmed: false };
         case ActionType.SET_RECORDING_STATE:
             return { ...state, isRecording: action.payload };
         case ActionType.SET_ARMED_STATE:
@@ -272,6 +305,12 @@ const appReducer = (state: AppState, action: Action): AppState => {
                     [param]: value,
                 },
             };
+        }
+        case ActionType.SET_PLAYBACK_TRACK_STATE: {
+            const { bankIndex, state: playbackState } = action.payload;
+            const newPlaybackTrackStates = [...state.playbackTrackStates];
+            newPlaybackTrackStates[bankIndex] = playbackState;
+            return { ...state, playbackTrackStates: newPlaybackTrackStates };
         }
         default:
             return state;

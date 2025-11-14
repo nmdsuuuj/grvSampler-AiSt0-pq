@@ -1,13 +1,13 @@
 import React, { useContext, useState, useRef } from 'react';
 import { AppContext } from '../../context/AppContext';
-import { ActionType } from '../../types';
+import { ActionType, PlaybackParams } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
 import { PADS_PER_BANK } from '../../constants';
 import BankSelector from '../BankSelector';
 
 interface SampleViewProps {
-    playSample: (id: number, time: number) => void;
+    playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
     startRecording: () => void;
     stopRecording: () => void;
     loadSampleFromBlob: (blob: Blob, sampleId: number, name?: string) => Promise<void>;

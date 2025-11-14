@@ -100,7 +100,7 @@ const ParamLockEditor: React.FC<ParamLockEditorProps> = ({ activePattern, active
            
             <div 
                 ref={containerRef}
-                className="grid grid-cols-16 gap-px bg-emerald-100 p-px rounded-sm"
+                className="grid grid-cols-8 gap-px bg-emerald-100 p-px rounded-sm"
                 onMouseDown={() => setIsDragging(true)}
                 onMouseUp={() => setIsDragging(false)}
                 onMouseLeave={() => setIsDragging(false)}
@@ -126,12 +126,12 @@ const ParamLockEditor: React.FC<ParamLockEditorProps> = ({ activePattern, active
                         <div
                             key={i}
                             data-step={i}
-                            className={`h-20 relative cursor-pointer select-none rounded-sm ${isStepOn ? 'bg-emerald-200' : 'bg-slate-50'}`}
+                            className={`h-12 relative cursor-pointer select-none rounded-sm ${isStepOn ? 'bg-emerald-200' : 'bg-slate-50'}`}
                             onMouseMove={(e) => handleMouseEvent(e, i)}
                             onMouseDown={(e) => { setIsDragging(true); handleMouseEvent(e, i); }}
                         >
                             <div className="absolute bottom-0 w-full bg-pink-400/70" style={{ height: `${percentage * 100}%` }}></div>
-                            <div className="absolute top-0 left-0 w-full text-center text-[8px] text-slate-500 font-semibold pointer-events-none">
+                            <div className="absolute top-0 left-0 w-full text-center text-[7px] text-slate-500 font-semibold pointer-events-none">
                                 {formatDisplayValue(value)}
                             </div>
                         </div>

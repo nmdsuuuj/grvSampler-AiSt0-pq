@@ -46,6 +46,17 @@ export interface MasterCompressorParams {
     release: number;   // seconds, 0 to 1
 }
 
+export interface PlaybackParams {
+    note: number | null;
+    velocity: number;
+    volume: number;
+    pitch: number;
+    start: number;
+    decay: number;
+    lpFreq: number;
+    hpFreq: number;
+}
+
 export interface AppState {
     audioContext: AudioContext | null;
     isInitialized: boolean;
@@ -54,7 +65,7 @@ export interface AppState {
     isArmed: boolean;
     recordingThreshold: number;
     bpm: number;
-    currentStep: number;
+    currentSteps: number[];
     activeSampleId: number;
     activeSampleBank: number;
     activeGrooveId: number;
@@ -74,6 +85,10 @@ export interface AppState {
     sampleClipboard: Sample | null;
     masterCompressorOn: boolean;
     masterCompressorParams: MasterCompressorParams;
+    playbackTrackStates: {
+        currentPart: 'A' | 'B';
+        partRepetition: number;
+    }[];
 }
 
 export enum ActionType {
@@ -110,13 +125,15 @@ export enum ActionType {
     PASTE_SAMPLE,
     TOGGLE_MASTER_COMPRESSOR,
     UPDATE_MASTER_COMPRESSOR_PARAM,
+    SET_PLAYBACK_TRACK_STATE,
+    RECORD_STEP,
 }
 
 export type Action =
     | { type: ActionType.INITIALIZE_AUDIO; payload: AudioContext }
     | { type: ActionType.TOGGLE_PLAY }
     | { type: ActionType.SET_BPM; payload: number }
-    | { type: ActionType.SET_CURRENT_STEP; payload: number }
+    | { type: ActionType.SET_CURRENT_STEP; payload: { bankIndex: number; step: number } }
     | { type: ActionType.SET_ACTIVE_SAMPLE; payload: number }
     | { type: ActionType.SET_ACTIVE_SAMPLE_BANK; payload: number }
     | { type: ActionType.SET_ACTIVE_GROOVE; payload: number }
@@ -145,4 +162,6 @@ export type Action =
     | { type: ActionType.COPY_SAMPLE }
     | { type: ActionType.PASTE_SAMPLE }
     | { type: ActionType.TOGGLE_MASTER_COMPRESSOR }
-    | { type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM; payload: { param: keyof MasterCompressorParams; value: number } };
+    | { type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM; payload: { param: keyof MasterCompressorParams; value: number } }
+    | { type: ActionType.SET_PLAYBACK_TRACK_STATE; payload: { bankIndex: number; state: { currentPart: 'A' | 'B'; partRepetition: number; } } }
+    | { type: ActionType.RECORD_STEP; payload: { patternId: number; sampleId: number; step: number; note: number } };

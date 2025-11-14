@@ -1,3 +1,4 @@
+
 import { useContext, useEffect, useRef } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, LockableParam, Sample } from '../types';
@@ -43,7 +44,7 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
             currentPart: 'A',
             partRepetition: 0,
         }));
-        dispatch({ type: ActionType.SET_CURRENT_STEP, payload: -1 });
+        // The reducer handles resetting currentSteps now when isPlaying becomes false
     };
     
     // Initialize track states
@@ -129,8 +130,21 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
                     }
                 }
                 
+                // Dispatch current step for every bank to enable multi-bank recording
+                dispatch({ type: ActionType.SET_CURRENT_STEP, payload: { bankIndex: nextTrackIndex, step: displayStep } });
+
                 if (nextTrackIndex === activeSampleBank) {
-                    dispatch({ type: ActionType.SET_CURRENT_STEP, payload: displayStep });
+                    // This part is for the loop meter UI, which only needs the active bank's state.
+                    dispatch({ 
+                        type: ActionType.SET_PLAYBACK_TRACK_STATE, 
+                        payload: { 
+                            bankIndex: nextTrackIndex, 
+                            state: { 
+                                currentPart: trackState.currentPart, 
+                                partRepetition: trackState.partRepetition 
+                            } 
+                        } 
+                    });
                 }
 
                 const stepResolution = isPartA ? pattern.stepResolutionA : pattern.stepResolutionB;

@@ -12,9 +12,11 @@ interface FaderProps {
   displayPrecision?: number;
   isVertical?: boolean;
   hideInfo?: boolean;
+  size?: 'normal' | 'thin';
+  hideValue?: boolean;
 }
 
-const Fader: React.FC<FaderProps> = ({ label, value, onChange, min, max, step, defaultValue, displayValue, displayPrecision = 2, isVertical = false, hideInfo = false }) => {
+const Fader: React.FC<FaderProps> = ({ label, value, onChange, min, max, step, defaultValue, displayValue, displayPrecision = 2, isVertical = false, hideInfo = false, size = 'normal', hideValue = false }) => {
   const [internalValue, setInternalValue] = useState(value);
   const frameId = useRef<number | null>(null);
   const tapTimeout = useRef<number | null>(null);
@@ -77,10 +79,12 @@ const Fader: React.FC<FaderProps> = ({ label, value, onChange, min, max, step, d
   const valueToDisplay = displayValue !== undefined ? displayValue : internalValue;
 
   const containerClasses = isVertical ? 'h-full w-auto' : 'w-full h-auto py-1';
-  const inputContainerClasses = isVertical ? 'relative h-full w-10' : 'relative h-10 w-full'; // Increased size
+  const inputContainerClasses = isVertical 
+    ? 'relative h-full w-10' 
+    : `relative h-${size === 'normal' ? '10' : '5'} w-full`;
   
   const labelContainerClasses = `absolute inset-0 flex items-center pointer-events-none text-white font-bold text-xs drop-shadow-sm select-none`;
-  const horizontalLabelClasses = 'justify-between px-4'; // Increased padding
+  const horizontalLabelClasses = `justify-between px-${size === 'normal' ? '4' : '2'}`; // Adjust padding
   const verticalLabelClasses = 'flex-col justify-between items-center py-3'; // Increased padding
 
   return (
@@ -95,12 +99,12 @@ const Fader: React.FC<FaderProps> = ({ label, value, onChange, min, max, step, d
             onChange={handleChange}
             onDoubleClick={handleDoubleClick} // For desktop
             onTouchStart={handleTouchStart} // For mobile
-            className={isVertical ? 'vertical-fader' : 'horizontal-fader'}
+            className={`${isVertical ? 'vertical-fader' : 'horizontal-fader'} ${size === 'thin' ? 'thin-horizontal-fader' : ''}`}
           />
           {!hideInfo && (
             <div className={`${labelContainerClasses} ${isVertical ? verticalLabelClasses : horizontalLabelClasses}`}>
                 {label && <span>{label}</span>}
-                <span>{valueToDisplay.toFixed(displayPrecision)}</span>
+                {!hideValue && <span>{valueToDisplay.toFixed(displayPrecision)}</span>}
             </div>
           )}
       </div>

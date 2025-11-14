@@ -41,7 +41,8 @@ class ProjectDB extends Dexie {
 
   constructor() {
     super('GrooveSamplerDB');
-    this.version(2).stores({
+    // FIX: Cast `this` to `Dexie` to resolve a TypeScript typing issue where the inherited `version` method was not being found.
+    (this as Dexie).version(1).stores({
       projects: '++id, name, createdAt',
       sampleKits: '++id, name, createdAt',
     });
