@@ -49,6 +49,8 @@ const initialState: AppState = {
         stepResolutionB: 16,
         stepLengthB: 16,
         loopCountB: 1,
+        playbackKey: 0,
+        playbackScale: 'Thru',
     })),
     activePatternIds: Array(TOTAL_BANKS).fill(0).map((_, i) => i * (TOTAL_PATTERNS / TOTAL_BANKS)), // Bank A gets P1 (id 0), B gets P33 (id 32), etc.
     grooves: GROOVE_PATTERNS,
@@ -228,6 +230,22 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return {
                 ...state,
                 patterns: state.patterns.map(p => p.id === patternId ? { ...p, ...params } : p),
+            };
+        }
+        case ActionType.UPDATE_PATTERN_PLAYBACK_SCALE: {
+            const { patternId, key, scale } = action.payload;
+             return {
+                ...state,
+                patterns: state.patterns.map(p => {
+                    if (p.id === patternId) {
+                        return {
+                            ...p,
+                            playbackKey: key ?? p.playbackKey,
+                            playbackScale: scale ?? p.playbackScale,
+                        };
+                    }
+                    return p;
+                }),
             };
         }
         case ActionType.LOAD_PROJECT_STATE:

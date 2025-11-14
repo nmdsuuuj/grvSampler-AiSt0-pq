@@ -36,6 +36,8 @@ export interface Pattern {
     stepResolutionB: number;
     stepLengthB: number;
     loopCountB: number;
+    playbackKey: number; // 0-11 for C-B, for non-destructive playback re-pitching
+    playbackScale: string; // Name of the scale for non-destructive playback re-pitching
 }
 
 export interface MasterCompressorParams {
@@ -130,6 +132,7 @@ export enum ActionType {
     RECORD_STEP,
     SET_KEY,
     SET_SCALE,
+    UPDATE_PATTERN_PLAYBACK_SCALE,
 }
 
 export type Action =
@@ -168,4 +171,5 @@ export type Action =
     | { type: ActionType.SET_PLAYBACK_TRACK_STATE; payload: { bankIndex: number; state: { currentPart: 'A' | 'B'; partRepetition: number; } } }
     | { type: ActionType.RECORD_STEP; payload: { patternId: number; sampleId: number; step: number; detune: number } }
     | { type: ActionType.SET_KEY, payload: number }
-    | { type: ActionType.SET_SCALE, payload: string };
+    | { type: ActionType.SET_SCALE, payload: string }
+    | { type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: number; key?: number; scale?: string } };

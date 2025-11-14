@@ -1,3 +1,4 @@
+
 // All intervals are in cents (1/100th of a semitone)
 interface Scale {
     name: string;
@@ -5,6 +6,9 @@ interface Scale {
 }
 
 const SCALES: Scale[] = [
+    // --- Special ---
+    { name: 'Thru', intervals: [] }, // Special scale to bypass remapping
+
     // --- Standard Western (12-TET) ---
     { name: 'Chromatic', intervals: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100] },
     { name: 'Major', intervals: [200, 200, 100, 200, 200, 200, 100] },

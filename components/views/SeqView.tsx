@@ -7,6 +7,10 @@ import { PADS_PER_BANK, STEPS_PER_PART, LOOP_PRESETS, PATTERNS_PER_BANK, STEPS_P
 import Fader from '../Fader';
 import BankSelector from '../BankSelector';
 import KeyboardInput from '../KeyboardInput';
+import SCALES from '../../scales';
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
 
 const PARAMS: { value: LockableParam; label: string; min: number; max: number; step: number; isNote: boolean; }[] = [
     { value: 'pitch', label: 'Pitch', min: -24, max: 24, step: 0.01, isNote: false },
@@ -48,9 +52,10 @@ const LoopMeter: React.FC<{ part: 'A' | 'B'; count: number; currentRep: number }
 
 const PartSettings: React.FC<{
     activePattern: Pattern;
-    updatePatternParams: (params: Partial<Omit<Pattern, 'id' | 'steps' | 'paramLocks'>>) => void;
+    updatePatternParams: (params: Partial<Omit<Pattern, 'id' | 'steps' | 'paramLocks' | 'playbackKey' | 'playbackScale'>>) => void;
+    updatePlaybackScale: (params: { key?: number; scale?: string }) => void;
     playbackState: { currentPart: 'A' | 'B'; partRepetition: number; };
-}> = ({ activePattern, updatePatternParams, playbackState }) => {
+}> = ({ activePattern, updatePatternParams, updatePlaybackScale, playbackState }) => {
 
     const handleLoopChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const preset = LOOP_PRESETS.find(p => p.label === e.target.value);
@@ -63,6 +68,31 @@ const PartSettings: React.FC<{
 
     return (
         <div className="flex-shrink-0 bg-white shadow-md p-2 rounded-lg space-y-2">
+            {/* Playback Scale Controls */}
+            <div className="bg-emerald-50/80 p-1 rounded-md flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 px-2">Playback Scale</span>
+                <div className="flex items-center space-x-1">
+                     <select 
+                        value={activePattern.playbackKey} 
+                        onChange={(e) => updatePlaybackScale({ key: parseInt(e.target.value)})}
+                        className="bg-emerald-200 text-emerald-800 rounded p-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400"
+                    >
+                        {NOTE_NAMES.map((name, index) => (
+                            <option key={name} value={index}>{name}</option>
+                        ))}
+                    </select>
+                     <select 
+                        value={activePattern.playbackScale} 
+                        onChange={(e) => updatePlaybackScale({ scale: e.target.value})}
+                        className="bg-emerald-200 text-emerald-800 rounded p-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 max-w-[120px]"
+                    >
+                        {SCALES.map(scale => (
+                            <option key={scale.name} value={scale.name}>{scale.name}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-x-2">
                 {/* Part A */}
                 <div className="bg-emerald-50/80 p-2 rounded-md space-y-2">
@@ -179,11 +209,19 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
         dispatch({ type: ActionType.SET_ACTIVE_PATTERN_FOR_BANK, payload: { bankIndex: activeSampleBank, patternId: id } });
     };
 
-    const updatePatternParams = (params: Partial<Omit<Pattern, 'id' | 'steps' | 'paramLocks'>>) => {
+    const updatePatternParams = (params: Partial<Omit<Pattern, 'id' | 'steps' | 'paramLocks' | 'playbackKey' | 'playbackScale'>>) => {
         if (!activePattern) return;
         dispatch({
             type: ActionType.UPDATE_PATTERN_PARAMS,
             payload: { patternId: activePattern.id, params },
+        });
+    };
+    
+    const updatePlaybackScale = (params: { key?: number; scale?: string }) => {
+        if (!activePattern) return;
+        dispatch({
+            type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE,
+            payload: { patternId: activePattern.id, ...params },
         });
     };
 
@@ -240,7 +278,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                 </button>
             </div>
             
-            {mode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} playbackState={playbackState} />}
+            {mode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} updatePlaybackScale={updatePlaybackScale} playbackState={playbackState} />}
             {mode === 'PARAM' && (
                  <div className="flex-shrink-0 bg-white shadow-md p-2 rounded-lg space-y-2">
                     {DETUNE_PARAM && (() => {
