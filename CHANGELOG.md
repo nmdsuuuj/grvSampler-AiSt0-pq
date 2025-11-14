@@ -2,6 +2,32 @@
 
 This document tracks the major changes, feature implementations, and requirement adjustments throughout the development of the Groove Sampler application.
 
+## Known Issues
+
+- **Pattern Copy/Paste**: The functionality to copy and paste a pattern between different banks (e.g., from Bank A to Bank B) is currently unreliable. While pattern parameters like length and division may be copied, the core step sequence data (note triggers, pitch, velocity) is often lost in the process. This is a high-priority bug that will be addressed in a future refactoring of the state management for patterns.
+
+## Version 0.5.0 - The Microtonal & World Scale Update
+
+This major update transforms the Groove Sampler from a standard 12-tone sequencer into a unique and powerful tool for exploring and composing with world music scales.
+
+### Implemented Features
+- **Microtonal Engine Implementation**:
+  - **Core Change**: Re-engineered the core audio and sequencer engine to use a **cents-based `detune` system** instead of MIDI note numbers. This allows for the authentic reproduction of scales that do not conform to 12-tone equal temperament.
+- **Massively Expanded Scale Database**:
+  - Added over 40 authentic world music scales to the database, defined with their proper microtonal intervals in cents.
+  - Includes a wide variety of scales from Arabic (Maqamat), Indian (Ragas), Indonesian (Pelog/Slendro), Japanese, African, and ancient Greek traditions.
+- **New "Dynamic Keyboard" UI**:
+  - Replaced the static piano keyboard in `REC` mode with a dynamic UI that **only displays the notes of the selected scale**. This eliminates "unused" keys and provides a highly intuitive way to compose within a specific scale.
+- **Non-Destructive Playback Scale Remapping**:
+  - Introduced a powerful new **"Playback Scale"** feature in `PART` mode.
+  - This allows users to apply a different scale to an *entire existing pattern* during playback without altering the original recorded notes.
+  - The sequencer remaps the notes to the closest tones in the selected playback scale in real-time. Setting the scale to `"Thru"` instantly reverts to the original performance.
+- **Critical Bug Fixes**:
+  - Resolved a persistent bug where the keyboard UI would render incorrectly (e.g., as thin lines), especially for scales with fewer or more than 12 notes. The new dynamic keyboard with a flexbox layout completely solves this issue.
+  - Fixed a logic error in the sequencer that prevented microtonal parameter locks from being played back correctly.
+
+---
+
 ## Version 0.4.0 (Current) - Mobile UX & Fader Overhaul
 
 ### Implemented Features & Fixes

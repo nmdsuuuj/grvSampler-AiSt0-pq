@@ -24,7 +24,8 @@ export interface Project {
   id?: number;
   name: string;
   createdAt: Date;
-  state: Omit<AppState, 'audioContext' | 'isInitialized' | 'isPlaying' | 'isRecording' | 'currentStep' | 'samples' | 'grooves'>;
+  // FIX: Renamed `currentStep` to `currentSteps` to match the `AppState` interface and correctly omit the transient sequencer step state from saved projects.
+  state: Omit<AppState, 'audioContext' | 'isInitialized' | 'isPlaying' | 'isRecording' | 'currentSteps' | 'samples' | 'grooves'>;
   samples: StorableSample[];
 }
 

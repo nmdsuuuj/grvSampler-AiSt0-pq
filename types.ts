@@ -75,6 +75,8 @@ export interface AppState {
     grooveDepth: number;
     activeKey: number; // 0-11 for C-B
     activeScale: string; // Name of the scale
+    keyboardOctave: number; // For PC keyboard note input
+    seqMode: 'PART' | 'PARAM' | 'REC'; // Sequencer view mode
     samples: Sample[];
     patterns: Pattern[];
     activePatternIds: number[]; // one per bank
@@ -87,6 +89,7 @@ export interface AppState {
     isMasterRecording: boolean;
     isMasterRecArmed: boolean;
     sampleClipboard: Sample | null;
+    patternClipboard: Pattern | null;
     masterCompressorOn: boolean;
     masterCompressorParams: MasterCompressorParams;
     playbackTrackStates: {
@@ -133,6 +136,15 @@ export enum ActionType {
     SET_KEY,
     SET_SCALE,
     UPDATE_PATTERN_PLAYBACK_SCALE,
+    RANDOMIZE_SEQUENCE,
+    CLEAR_SEQUENCE,
+    FILL_SEQUENCE,
+    RANDOMIZE_PITCH,
+    APPLY_SEQUENCE_TEMPLATE,
+    COPY_PATTERN,
+    PASTE_PATTERN,
+    SET_KEYBOARD_OCTAVE,
+    SET_SEQ_MODE,
 }
 
 export type Action =
@@ -172,4 +184,13 @@ export type Action =
     | { type: ActionType.RECORD_STEP; payload: { patternId: number; sampleId: number; step: number; detune: number } }
     | { type: ActionType.SET_KEY, payload: number }
     | { type: ActionType.SET_SCALE, payload: string }
-    | { type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: number; key?: number; scale?: string } };
+    | { type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: number; key?: number; scale?: string } }
+    | { type: ActionType.RANDOMIZE_SEQUENCE, payload: { patternId: number; sampleId: number } }
+    | { type: ActionType.CLEAR_SEQUENCE, payload: { patternId: number; sampleId: number } }
+    | { type: ActionType.FILL_SEQUENCE, payload: { patternId: number; sampleId: number } }
+    | { type: ActionType.RANDOMIZE_PITCH, payload: { patternId: number; sampleId: number; key: number; scale: string } }
+    | { type: ActionType.APPLY_SEQUENCE_TEMPLATE, payload: { patternId: number; sampleId: number; steps: boolean[] } }
+    | { type: ActionType.COPY_PATTERN, payload: { patternId: number } }
+    | { type: ActionType.PASTE_PATTERN, payload: { patternId: number } }
+    | { type: ActionType.SET_KEYBOARD_OCTAVE, payload: number }
+    | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' };

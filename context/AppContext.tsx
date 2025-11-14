@@ -1,7 +1,8 @@
 
 import React, { createContext, useReducer, Dispatch } from 'react';
-import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam } from '../types';
+import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
+import SCALES from '../scales';
 
 const createEmptySteps = (): Step[][] =>
     Array.from({ length: TOTAL_SAMPLES }, () =>
@@ -28,6 +29,8 @@ const initialState: AppState = {
     grooveDepth: 0,
     activeKey: 0, // C
     activeScale: 'Chromatic',
+    keyboardOctave: 4,
+    seqMode: 'PART',
     samples: Array.from({ length: TOTAL_SAMPLES }, (_, i) => ({
         id: i,
         name: `Sample ${String.fromCharCode(65 + Math.floor(i / PADS_PER_BANK))}${ (i % PADS_PER_BANK) + 1}`,
@@ -62,6 +65,7 @@ const initialState: AppState = {
     isMasterRecording: false,
     isMasterRecArmed: false,
     sampleClipboard: null,
+    patternClipboard: null,
     masterCompressorOn: false,
     masterCompressorParams: {
         threshold: -24,
@@ -140,6 +144,129 @@ const appReducer = (state: AppState, action: Action): AppState => {
                     return p;
                 }),
             };
+        }
+        case ActionType.APPLY_SEQUENCE_TEMPLATE: {
+            const { patternId, sampleId, steps: templateSteps } = action.payload;
+
+            const newPatterns = state.patterns.map(pattern => {
+                if (pattern.id !== patternId) {
+                    return pattern;
+                }
+
+                const newSteps = pattern.steps.map((lane, laneIndex) => {
+                    if (laneIndex !== sampleId) {
+                        return lane;
+                    }
+
+                    return lane.map((originalStep, stepIndex) => ({
+                        ...originalStep,
+                        active: templateSteps[stepIndex] ?? originalStep.active,
+                    }));
+                });
+
+                return {
+                    ...pattern,
+                    steps: newSteps,
+                };
+            });
+
+            return {
+                ...state,
+                patterns: newPatterns,
+            };
+        }
+        case ActionType.RANDOMIZE_SEQUENCE: {
+            const { patternId, sampleId } = action.payload;
+            const newPatterns = state.patterns.map(pattern => {
+                if (pattern.id !== patternId) return pattern;
+                return {
+                    ...pattern,
+                    steps: pattern.steps.map((originalLane, laneIndex) => {
+                        if (laneIndex !== sampleId) return [...originalLane];
+                        return originalLane.map(originalStep => ({
+                            ...originalStep,
+                            active: Math.random() < 0.3,
+                        }));
+                    }),
+                };
+            });
+            return { ...state, patterns: newPatterns };
+        }
+        case ActionType.CLEAR_SEQUENCE: {
+            const { patternId, sampleId } = action.payload;
+            const newPatterns = state.patterns.map(pattern => {
+                if (pattern.id !== patternId) return pattern;
+                return {
+                    ...pattern,
+                    steps: pattern.steps.map((originalLane, laneIndex) => {
+                        if (laneIndex !== sampleId) return [...originalLane];
+                        return originalLane.map(originalStep => ({
+                            ...originalStep,
+                            active: false,
+                        }));
+                    }),
+                };
+            });
+            return { ...state, patterns: newPatterns };
+        }
+        case ActionType.FILL_SEQUENCE: {
+            const { patternId, sampleId } = action.payload;
+            const newPatterns = state.patterns.map(pattern => {
+                if (pattern.id !== patternId) return pattern;
+                return {
+                    ...pattern,
+                    steps: pattern.steps.map((originalLane, laneIndex) => {
+                        if (laneIndex !== sampleId) return [...originalLane];
+                        return originalLane.map(originalStep => ({
+                            ...originalStep,
+                            active: true,
+                        }));
+                    }),
+                };
+            });
+            return { ...state, patterns: newPatterns };
+        }
+        case ActionType.RANDOMIZE_PITCH: {
+            const { patternId, sampleId, key, scale: scaleName } = action.payload;
+            
+            const scale = SCALES.find(s => s.name === scaleName);
+            let possibleNotes: number[] = [];
+
+            if (scale && scale.intervals.length > 0) {
+                const baseNote = key * 100;
+                 for (let oct = -2; oct <= 2; oct++) {
+                    let cumulativeCents = 0;
+                    for (const interval of scale.intervals) {
+                        possibleNotes.push(baseNote + cumulativeCents + (oct * 1200));
+                        cumulativeCents += interval;
+                    }
+                }
+            } else {
+                // Default to chromatic if scale not found or is chromatic/thru
+                 for (let i = -24; i <= 24; i++) {
+                    possibleNotes.push(i * 100);
+                }
+            }
+            if (possibleNotes.length === 0) possibleNotes.push(0);
+
+            const newPatterns = state.patterns.map(pattern => {
+                if (pattern.id !== patternId) return pattern;
+                return {
+                    ...pattern,
+                    steps: pattern.steps.map((originalLane, laneIndex) => {
+                        if (laneIndex !== sampleId) return [...originalLane];
+                        return originalLane.map(originalStep => {
+                            if (!originalStep.active) return originalStep;
+                            const randomNote = possibleNotes[Math.floor(Math.random() * possibleNotes.length)];
+                            return {
+                                ...originalStep,
+                                detune: randomNote,
+                            };
+                        });
+                    }),
+                };
+            });
+            return { ...state, patterns: newPatterns };
         }
         case ActionType.RECORD_STEP: {
             const { patternId, sampleId, step, detune } = action.payload;
@@ -310,6 +437,34 @@ const appReducer = (state: AppState, action: Action): AppState => {
             });
             return { ...state, samples: newSamples };
         }
+        case ActionType.COPY_PATTERN: {
+            const { patternId } = action.payload;
+            const patternToCopy = state.patterns.find(p => p.id === patternId);
+            if (!patternToCopy) return state;
+            
+            // Basic deep copy for serializable data
+            const deepCopiedPattern = JSON.parse(JSON.stringify(patternToCopy));
+            return { ...state, patternClipboard: deepCopiedPattern };
+        }
+        case ActionType.PASTE_PATTERN: {
+            const { patternId: destinationPatternId } = action.payload;
+            if (!state.patternClipboard) return state;
+ 
+            // Use a robust deep copy to ensure all nested data (steps, paramLocks) is duplicated.
+            const patternFromClipboard = JSON.parse(JSON.stringify(state.patternClipboard));
+            
+            // Create the new pattern, ensuring it gets the correct destination ID.
+            const newPattern: Pattern = {
+                ...patternFromClipboard,
+                id: destinationPatternId,
+            };
+ 
+            const newPatterns = state.patterns.map(p => {
+                return p.id === destinationPatternId ? newPattern : p;
+            });
+ 
+            return { ...state, patterns: newPatterns };
+        }
         case ActionType.TOGGLE_MASTER_COMPRESSOR:
             return { ...state, masterCompressorOn: !state.masterCompressorOn };
         case ActionType.UPDATE_MASTER_COMPRESSOR_PARAM: {
@@ -332,6 +487,10 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, activeKey: action.payload };
         case ActionType.SET_SCALE:
             return { ...state, activeScale: action.payload };
+        case ActionType.SET_KEYBOARD_OCTAVE:
+            return { ...state, keyboardOctave: action.payload };
+        case ActionType.SET_SEQ_MODE:
+            return { ...state, seqMode: action.payload };
         default:
             return state;
     }

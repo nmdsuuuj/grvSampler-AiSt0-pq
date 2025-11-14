@@ -1,5 +1,5 @@
 
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useMemo } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, Pattern, LockableParam, Sample, PlaybackParams } from '../../types';
 import Pad from '../Pad';
@@ -8,6 +8,8 @@ import Fader from '../Fader';
 import BankSelector from '../BankSelector';
 import KeyboardInput from '../KeyboardInput';
 import SCALES from '../../scales';
+import TEMPLATES, { Template } from '../../templates';
+
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
@@ -24,7 +26,6 @@ const PARAMS: { value: LockableParam; label: string; min: number; max: number; s
 ];
 
 const FADER_PARAMS = PARAMS.filter(p => !['pitch', 'volume', 'detune'].includes(p.value));
-const DETUNE_PARAM = PARAMS.find(p => p.value === 'detune');
 
 
 interface SeqViewProps {
@@ -67,7 +68,7 @@ const PartSettings: React.FC<{
     const currentLoopPreset = LOOP_PRESETS.find(p => p.a === activePattern.loopCountA && p.b === activePattern.loopCountB);
 
     return (
-        <div className="flex-shrink-0 bg-white shadow-md p-2 rounded-lg space-y-2">
+        <div className="flex-shrink-0 bg-white shadow-md p-1 rounded-lg space-y-1">
             {/* Playback Scale Controls */}
             <div className="bg-emerald-50/80 p-1 rounded-md flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-500 px-2">Playback Scale</span>
@@ -75,7 +76,7 @@ const PartSettings: React.FC<{
                      <select 
                         value={activePattern.playbackKey} 
                         onChange={(e) => updatePlaybackScale({ key: parseInt(e.target.value)})}
-                        className="bg-emerald-200 text-emerald-800 rounded p-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400"
+                        className="bg-emerald-200 text-emerald-800 rounded p-1 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400"
                     >
                         {NOTE_NAMES.map((name, index) => (
                             <option key={name} value={index}>{name}</option>
@@ -84,7 +85,7 @@ const PartSettings: React.FC<{
                      <select 
                         value={activePattern.playbackScale} 
                         onChange={(e) => updatePlaybackScale({ scale: e.target.value})}
-                        className="bg-emerald-200 text-emerald-800 rounded p-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 max-w-[120px]"
+                        className="bg-emerald-200 text-emerald-800 rounded p-1 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 max-w-[120px]"
                     >
                         {SCALES.map(scale => (
                             <option key={scale.name} value={scale.name}>{scale.name}</option>
@@ -93,9 +94,9 @@ const PartSettings: React.FC<{
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-x-2">
+            <div className="grid grid-cols-2 gap-x-1">
                 {/* Part A */}
-                <div className="bg-emerald-50/80 p-2 rounded-md space-y-2">
+                <div className="bg-emerald-50/80 p-1 rounded-md space-y-1">
                      <div className="grid grid-cols-5 gap-1">
                         {ALL_RATE_VALUES.map(rate => (
                             <button
@@ -114,7 +115,7 @@ const PartSettings: React.FC<{
                     </div>
                 </div>
                 {/* Part B */}
-                <div className="bg-emerald-50/80 p-2 rounded-md space-y-2">
+                <div className="bg-emerald-50/80 p-1 rounded-md space-y-1">
                      <div className="grid grid-cols-5 gap-1">
                          {ALL_RATE_VALUES.map(rate => (
                             <button
@@ -135,11 +136,11 @@ const PartSettings: React.FC<{
             </div>
 
             {/* Loop Controls */}
-             <div className="flex items-center space-x-2">
+             <div className="flex items-center space-x-1">
                 <select
                     onChange={handleLoopChange}
                     value={currentLoopPreset?.label || ''}
-                    className="bg-emerald-200 text-emerald-800 rounded p-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 w-1/4"
+                    className="bg-emerald-200 text-emerald-800 rounded p-1 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 w-1/4"
                 >
                     {LOOP_PRESETS.map(p => <option key={p.label} value={p.label}>{p.label}</option>)}
                 </select>
@@ -153,12 +154,58 @@ const PartSettings: React.FC<{
 };
 
 
+const TemplateModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onSelect: (template: Template) => void;
+}> = ({ isOpen, onClose, onSelect }) => {
+    const categorizedTemplates = useMemo(() => {
+        return TEMPLATES.reduce<Record<string, Template[]>>((acc, tpl) => {
+            if (!acc[tpl.category]) {
+                acc[tpl.category] = [];
+            }
+            acc[tpl.category].push(tpl);
+            return acc;
+        }, {});
+    }, []);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-white rounded-lg shadow-xl p-4 w-11/12 max-w-sm" onClick={e => e.stopPropagation()}>
+                <h3 className="font-bold text-lg text-center mb-3">Apply Template</h3>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                    {Object.entries(categorizedTemplates).map(([category, templates]) => (
+                        <div key={category}>
+                            <h4 className="font-semibold text-slate-600 border-b mb-1">{category}</h4>
+                            <div className="grid grid-cols-2 gap-1">
+                                {/* FIX: Add type assertion to fix `Property 'map' does not exist on type 'unknown'` error. */}
+                                {(templates as Template[]).map(tpl => (
+                                    <button
+                                        key={tpl.name}
+                                        onClick={() => onSelect(tpl)}
+                                        className="bg-emerald-200 text-emerald-800 rounded p-2 text-xs font-bold hover:bg-emerald-300 transition-colors text-left"
+                                    >
+                                        {tpl.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     const { state, dispatch } = useContext(AppContext);
     const [patternViewBank, setPatternViewBank] = useState(0);
-    const [mode, setMode] = useState<SeqMode>('PART');
     const [selectedStep, setSelectedStep] = useState<number>(0);
     const [paramGridMode, setParamGridMode] = useState<ParamGridMode>('select');
+    const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
 
 
     const {
@@ -171,6 +218,9 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
         audioContext,
         playbackTrackStates,
         isPlaying,
+        activeKey,
+        activeScale,
+        seqMode,
     } = state;
     
     const activePatternId = activePatternIds[activeSampleBank];
@@ -187,7 +237,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     const handleSamplePadClick = (id: number) => {
         // In REC mode, pads only select the active sample for the keyboard.
         // Recording is triggered by the KeyboardInput component.
-        if (mode === 'REC') {
+        if (seqMode === 'REC') {
             dispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: id });
             return;
         }
@@ -245,6 +295,43 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
             handleStepToggle(activeSampleId, stepIndex);
         }
     };
+
+    const handleApplyTemplate = (template: Template) => {
+        if (!activePattern) return;
+        dispatch({
+            type: ActionType.APPLY_SEQUENCE_TEMPLATE,
+            payload: {
+                patternId: activePattern.id,
+                sampleId: activeSampleId,
+                steps: template.steps,
+            }
+        });
+        setIsTemplateModalOpen(false);
+    };
+
+    const handleUtilButtonClick = (type: 'clear' | 'fill' | 'rand_steps' | 'rand_pitch' | 'copy' | 'paste') => {
+        if (!activePattern) return;
+        switch (type) {
+            case 'clear':
+                dispatch({ type: ActionType.CLEAR_SEQUENCE, payload: { patternId: activePattern.id, sampleId: activeSampleId } });
+                break;
+            case 'fill':
+                dispatch({ type: ActionType.FILL_SEQUENCE, payload: { patternId: activePattern.id, sampleId: activeSampleId } });
+                break;
+            case 'rand_steps':
+                dispatch({ type: ActionType.RANDOMIZE_SEQUENCE, payload: { patternId: activePattern.id, sampleId: activeSampleId } });
+                break;
+            case 'rand_pitch':
+                dispatch({ type: ActionType.RANDOMIZE_PITCH, payload: { patternId: activePattern.id, sampleId: activeSampleId, key: activeKey, scale: activeScale } });
+                break;
+            case 'copy':
+                dispatch({ type: ActionType.COPY_PATTERN, payload: { patternId: activePattern.id } });
+                break;
+            case 'paste':
+                dispatch({ type: ActionType.PASTE_PATTERN, payload: { patternId: activePattern.id } });
+                break;
+        }
+    };
     
     const sampleBankOffset = activeSampleBank * PADS_PER_BANK;
     const patternBankOffsetForView = (activeSampleBank * PATTERNS_PER_BANK) + (patternViewBank * PADS_PER_BANK);
@@ -254,54 +341,41 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     }
 
     const sampleId = activeSampleId;
+    const utilityButtonClass = "bg-emerald-200 text-emerald-800 rounded p-1.5 text-[10px] font-bold focus:outline-none focus:ring-2 focus:ring-pink-400 w-full hover:bg-emerald-300 transition-colors leading-tight";
+
 
     return (
-        <div className="flex flex-col h-full p-1 justify-between">
-            <div className="flex items-center justify-center space-x-1 p-1 bg-emerald-200 rounded-lg mb-1">
+        <div className="flex flex-col h-full p-1 space-y-1">
+            <TemplateModal isOpen={isTemplateModalOpen} onClose={() => setIsTemplateModalOpen(false)} onSelect={handleApplyTemplate} />
+            <div className="flex items-center justify-center space-x-1 p-1 bg-emerald-200 rounded-lg">
                 <button 
-                    onClick={() => setMode('PART')}
-                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${mode === 'PART' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
+                    onClick={() => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'PART' })}
+                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${seqMode === 'PART' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
                 >
-                    PART
+                    AB
                 </button>
                  <button 
-                    onClick={() => setMode('PARAM')}
-                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${mode === 'PARAM' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
+                    onClick={() => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'PARAM' })}
+                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${seqMode === 'PARAM' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
                 >
-                    PARAM
+                    P.L
                 </button>
                  <button 
-                    onClick={() => setMode('REC')}
-                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${mode === 'REC' ? 'bg-rose-500 text-white shadow' : 'bg-transparent text-slate-600'}`}
+                    onClick={() => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'REC' })}
+                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${seqMode === 'REC' ? 'bg-rose-500 text-white shadow' : 'bg-transparent text-slate-600'}`}
                 >
                     REC
                 </button>
             </div>
             
-            {mode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} updatePlaybackScale={updatePlaybackScale} playbackState={playbackState} />}
-            {mode === 'PARAM' && (
-                 <div className="flex-shrink-0 bg-white shadow-md p-2 rounded-lg space-y-2">
-                    {DETUNE_PARAM && (() => {
-                        const p = DETUNE_PARAM;
-                        const lockedValue = activePattern.steps[sampleId]?.[selectedStep]?.[p.value];
-                        
-                        let displayValue = (lockedValue === null || lockedValue === undefined) ? 0 : lockedValue;
-
-                        return (
-                            <Fader 
-                                key={p.value}
-                                label="Detune (c)"
-                                value={displayValue} 
-                                onChange={(val) => handleParamChange(p.value, val)} 
-                                min={p.min} 
-                                max={p.max} 
-                                step={p.step} 
-                                defaultValue={0}
-                                displayValue={displayValue}
-                                displayPrecision={0}
-                            />
-                        );
-                    })()}
+            {seqMode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} updatePlaybackScale={updatePlaybackScale} playbackState={playbackState} />}
+            {seqMode === 'PARAM' && (
+                 <div className="flex-shrink-0 bg-white shadow-md p-1 rounded-lg space-y-1">
+                    <KeyboardInput
+                        playSample={playSample}
+                        mode="PARAM"
+                        onNoteSelect={(detuneValue) => handleParamChange('detune', detuneValue)}
+                    />
                     <div className="grid grid-cols-3 gap-x-2 gap-y-1">
                         {FADER_PARAMS.map(p => {
                             const lockedValue = (p.value === 'velocity')
@@ -332,34 +406,35 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                                 />
                             );
                         })}
-                        <div className="flex items-center justify-end">
+                        <div className="flex flex-col space-y-1 justify-center">
                             <button
                                 onClick={() => setParamGridMode(prev => prev === 'select' ? 'selectAndGate' : 'select')}
-                                className={`h-full w-12 rounded text-[10px] font-bold transition-colors ${paramGridMode === 'selectAndGate' ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+                                className={`h-full w-full rounded text-xs font-bold transition-colors ${paramGridMode === 'selectAndGate' ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
                             >
-                                {paramGridMode === 'select' ? 'SEL' : 'SEL+G'}
+                                {paramGridMode === 'select' ? 'SEL' : 'SEL/GATE'}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
-            {mode === 'REC' && (
+            {seqMode === 'REC' && (
                 <KeyboardInput 
-                    playSample={playSample} 
+                    playSample={playSample}
+                    mode="REC"
                 />
             )}
 
 
             {/* Step Sequencer Grid / Param Editor */}
-            <div className="bg-white shadow-md p-2 rounded-lg">
-                <div className="grid grid-cols-8 gap-1.5">
+            <div className="bg-white shadow-md p-1 rounded-lg">
+                <div className="grid grid-cols-8 gap-1">
                     {Array.from({ length: STEPS_PER_PATTERN }).map((_, stepIndex) => {
                         const stepInfo = activePattern.steps[sampleId]?.[stepIndex];
                         const isStepOn = stepInfo?.active;
                         const isCurrentStep = currentStep === stepIndex;
                         const isPartB = stepIndex >= STEPS_PER_PART;
                         
-                        if (mode === 'PART' || mode === 'REC') {
+                        if (seqMode === 'PART' || seqMode === 'REC') {
                             let colorClasses;
                             if (isPartB) {
                                 colorClasses = isStepOn ? 'bg-fuchsia-400' : 'bg-emerald-100';
@@ -370,14 +445,14 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                             if (isCurrentStep) {
                                 colorClasses = isStepOn ? 'bg-lime-300 brightness-125' : 'bg-lime-400/50';
                             }
-                            const baseClasses = 'w-full h-8 rounded-sm transition-colors';
+                            const baseClasses = 'w-full h-7 rounded-sm transition-colors';
 
                             return (
                                 <button
                                     key={stepIndex}
                                     onClick={() => handleStepToggle(sampleId, stepIndex)}
                                     className={`${baseClasses} ${colorClasses}`}
-                                    disabled={mode === 'REC'}
+                                    disabled={seqMode === 'REC'}
                                 />
                             );
                         } else { // 'PARAM' mode - Step Selector
@@ -392,17 +467,28 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                                 <button
                                     key={stepIndex}
                                     onClick={() => handleParamStepClick(stepIndex)}
-                                    className={`w-full h-8 rounded-sm transition-colors ${bgClass} ${noteOnClass} ${selectedClass}`}
+                                    className={`w-full h-7 rounded-sm transition-colors ${bgClass} ${noteOnClass} ${selectedClass}`}
                                 />
                             );
                         }
                     })}
                 </div>
+                 { (seqMode === 'PART' || seqMode === 'REC') && (
+                    <div className="mt-1 grid grid-cols-4 grid-rows-2 gap-1">
+                        <button onClick={() => setIsTemplateModalOpen(true)} className={`${utilityButtonClass} row-span-2 bg-pink-200 text-pink-800 hover:bg-pink-300 focus:ring-pink-400 flex items-center justify-center`}>Apply<br/>Tmplt</button>
+                        <button onClick={() => handleUtilButtonClick('clear')} className={utilityButtonClass}>Clear</button>
+                        <button onClick={() => handleUtilButtonClick('fill')} className={utilityButtonClass}>Fill</button>
+                        <button onClick={() => handleUtilButtonClick('rand_steps')} className={`${utilityButtonClass} bg-sky-200 text-sky-800 hover:bg-sky-300 focus:ring-sky-400`}>Rand Steps</button>
+                        <button onClick={() => handleUtilButtonClick('rand_pitch')} className={`${utilityButtonClass} bg-sky-200 text-sky-800 hover:bg-sky-300 focus:ring-sky-400`}>Rand Pitch</button>
+                        <button onClick={() => handleUtilButtonClick('copy')} className={`${utilityButtonClass}`}>Copy Ptn</button>
+                        <button onClick={() => handleUtilButtonClick('paste')} className={`${utilityButtonClass}`}>Paste Ptn</button>
+                    </div>
+                 )}
             </div>
             
             {/* Bottom controls */}
-            <div className="grid grid-cols-2 gap-2">
-                <div className="bg-white shadow-md p-2 rounded-lg flex flex-col space-y-2">
+            <div className="grid grid-cols-2 gap-1">
+                <div className="bg-white shadow-md p-1 rounded-lg flex flex-col space-y-1">
                      <BankSelector type="sample" />
                     <div className="grid grid-cols-4 gap-2">
                         {Array.from({ length: PADS_PER_BANK }).map((_, i) => (
@@ -410,7 +496,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                         ))}
                     </div>
                 </div>
-                 <div className="bg-white shadow-md p-2 rounded-lg flex flex-col space-y-2">
+                 <div className="bg-white shadow-md p-1 rounded-lg flex flex-col space-y-1">
                     <div className="flex justify-center space-x-1">
                         {[0, 1, 2, 3].map(bankIndex => (
                             <button
@@ -434,7 +520,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                     </div>
                 </div>
             </div>
-
         </div>
     );
 };

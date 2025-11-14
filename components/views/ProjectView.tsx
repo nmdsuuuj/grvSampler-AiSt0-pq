@@ -66,7 +66,8 @@ const ProjectView: React.FC = () => {
             alert('Please enter a project name.');
             return;
         }
-        const { audioContext, isInitialized, isPlaying, isRecording, currentStep, samples, grooves, ...restOfState } = state;
+        // FIX: Renamed `currentStep` to `currentSteps` in destructuring to match the `AppState` interface and correctly exclude it from the saved project state.
+        const { audioContext, isInitialized, isPlaying, isRecording, currentSteps, samples, grooves, ...restOfState } = state;
         const project: Project = {
             name: projectName.trim(),
             createdAt: new Date(),

@@ -22,6 +22,7 @@ export const useAudioEngine = () => {
     
     const masterGainRef = useRef<GainNode | null>(null);
     const masterCompressorRef = useRef<DynamicsCompressorNode | null>(null);
+    const masterClipperRef = useRef<WaveShaperNode | null>(null);
     const bankGainsRef = useRef<GainNode[]>([]);
     const bankPannersRef = useRef<StereoPannerNode[]>([]);
     const sampleGainsRef = useRef<GainNode[]>([]);
@@ -59,13 +60,25 @@ export const useAudioEngine = () => {
             const compressor = audioContext.createDynamicsCompressor();
             masterCompressorRef.current = compressor;
 
+            // Master Safety Clipper
+            const clipper = audioContext.createWaveShaper();
+            // Create a curve that clamps the signal at +/- 1
+            const robustCurve = new Float32Array(4096);
+            for (let i = 0; i < 4096; i++) {
+                const x = (i - 2048) / 2048;
+                robustCurve[i] = Math.max(-1, Math.min(1, x));
+            }
+            clipper.curve = robustCurve;
+            masterClipperRef.current = clipper;
+
              // Master Gain
             const masterGain = audioContext.createGain();
             masterGain.connect(audioContext.destination);
             masterGainRef.current = masterGain;
 
-            // Connect compressor to master gain
-            compressor.connect(masterGain);
+            // Connect compressor -> clipper -> master gain
+            compressor.connect(clipper);
+            clipper.connect(masterGain);
 
 
             for (let i = 0; i < TOTAL_BANKS; i++) {
@@ -258,10 +271,15 @@ export const useAudioEngine = () => {
         const totalDetuneCents = (params.pitch * 100) + (params.detune || 0);
         source.detune.setValueAtTime(totalDetuneCents, effectiveTime);
         
+        // Calculate playback rate from detune to correctly scale the decay envelope
+        const playbackRate = Math.pow(2, totalDetuneCents / 1200);
+        
         // Envelope
-        const duration = sample.buffer.duration;
-        const startTime = duration * params.start;
-        const decayDuration = (duration - startTime) * params.decay;
+        const startOffset = sample.buffer.duration * params.start; // The point in the original buffer to start from
+        const remainingBufferDuration = sample.buffer.duration - startOffset; // The remaining length of the buffer
+        const actualPlaybackDuration = remainingBufferDuration / playbackRate; // How long that remaining part will actually play for
+        const decayDuration = actualPlaybackDuration * params.decay; // The final decay time based on the actual playback duration
+        
         const envelope = envelopeGainNode.gain;
         const releaseTime = 0.008;
 
@@ -280,7 +298,7 @@ export const useAudioEngine = () => {
             envelope.linearRampToValueAtTime(0, stopTime);
         }
         
-        source.start(effectiveTime, startTime);
+        source.start(effectiveTime, startOffset);
         source.stop(stopTime);
 
         // Keep track of active sources for potential real-time pitch changes (not fully implemented sync)
