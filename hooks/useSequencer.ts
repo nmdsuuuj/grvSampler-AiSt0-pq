@@ -1,7 +1,7 @@
 
 import { useContext, useEffect, useRef } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType, LockableParam, Sample } from '../types';
+import { ActionType, PlaybackParams, Sample } from '../types';
 import { STEPS_PER_PART, GROOVE_PATTERNS, TOTAL_BANKS, PADS_PER_BANK } from '../constants';
 
 interface TrackState {
@@ -11,18 +11,7 @@ interface TrackState {
     partRepetition: number;
 }
 
-interface PlaybackParams {
-    note: number | null;
-    velocity: number;
-    volume: number;
-    pitch: number;
-    start: number;
-    decay: number;
-    lpFreq: number;
-    hpFreq: number;
-}
-
-export const useSequencer = (playSample: (sampleId: number, time: number, params: PlaybackParams) => void) => {
+export const useSequencer = (playSample: (sampleId: number, time: number, params: Partial<PlaybackParams>) => void) => {
     const { state, dispatch } = useContext(AppContext);
     const { isPlaying, audioContext } = state;
 
@@ -107,9 +96,9 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
                         const sample = samples[sampleId];
                         const paramLocks = pattern.paramLocks[sampleId];
 
-                        const playbackParams: PlaybackParams = {
-                            note: paramLocks?.note?.[displayStep] ?? stepInfo.note,
-                            velocity: paramLocks?.velocity?.[displayStep] ?? stepInfo.velocity,
+                        const playbackParams: Partial<PlaybackParams> = {
+                            detune: stepInfo.detune, // Correct: detune is stored directly on the step
+                            velocity: stepInfo.velocity, // Correct: velocity is stored directly on the step
                             volume: paramLocks?.volume?.[displayStep] ?? sample.volume,
                             pitch: paramLocks?.pitch?.[displayStep] ?? sample.pitch,
                             start: paramLocks?.start?.[displayStep] ?? sample.start,

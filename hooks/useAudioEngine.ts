@@ -1,3 +1,4 @@
+
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, Sample, PlaybackParams } from '../types';
@@ -233,7 +234,7 @@ export const useAudioEngine = () => {
         envelopeGainNode.connect(lpNode);
         
         const baseParams: PlaybackParams = {
-            note: null,
+            detune: 0,
             velocity: 1,
             volume: sample.volume,
             pitch: sample.pitch,
@@ -253,9 +254,8 @@ export const useAudioEngine = () => {
         lpNode.frequency.setValueAtTime(params.lpFreq, effectiveTime);
         hpNode.frequency.setValueAtTime(params.hpFreq, effectiveTime);
 
-        // Pitch
-        // Note: 60 is middle C (C4). We assume the sample's base pitch is C4.
-        const totalDetuneCents = (params.pitch * 100) + (params.note ? (params.note - 60) * 100 : 0);
+        // Pitch - combines semitone pitch and microtonal detune in cents
+        const totalDetuneCents = (params.pitch * 100) + (params.detune || 0);
         source.detune.setValueAtTime(totalDetuneCents, effectiveTime);
         
         // Envelope

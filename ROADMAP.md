@@ -78,11 +78,11 @@ A function to record the final, mixed-down audio output (all banks + master effe
 ### 2. グローバル・スケールシステム
 
 #### **概要**
-メジャー/マイナースケールといった基本的な音階から、ブルース、ペンタトニック、さらには世界各国の民族音階まで、多彩なスケールをサポートします。
+メジャー/マイナースケールといった基本的な音階から、ご要望のあった**アフリカ、アラブ世界、イラン、中東、東欧、アジア（インドネシアのガムラン、インド古典音楽など）、さらには古代の音階**まで、多彩なスケールをサポートします。Gemini APIを活用してこれらの音階データを収集・データベース化し、アプリケーションに実装します。
 
 #### **UI/UX**
-*   楽曲のキー（ルート音）とスケールの種類を、ドロップダウンメニューから簡単に選択できます。
-*   選択されたスケールは、Keyboard Modeの鍵盤表示やParameter Lock Modeのピッチ入力範囲に反映され、作曲を強力にアシストします。
+*   楽曲のキー（ルート音）とスケールの種類を、ドロップダウンメニューから簡単に選択できるグローバル設定を導入します。
+*   選択されたスケールは、Keyboard Modeの鍵盤表示に反映されます。スケールに含まれない音は無効化（または非表示に）することで、ユーザーは音楽理論の知識がなくても、選択した音階に沿った本格的なメロディを直感的に作成できます。これにより、作曲プロセスが大幅に簡素化され、創造性が促進されます。
 
 ### 3. サンプルキット管理機能
 
@@ -117,3 +117,20 @@ A function to record the final, mixed-down audio output (all banks + master effe
     *   **音階楽器用:** ベースラインのアルペジオ、基本的なコード進行のパターンなど。
 *   **テンプレートの組み合わせ:**
     *   これらのシーケンスパターンテンプレートは、既存のグルーブテンプレート（Grooveビューで設定）と自由に組み合わせることが可能です。例えば、「サンバ」のリズムパターンに「MPC 62%」の人間的な揺れ（グルーブ）を加えるなど、無限のグルーヴを生み出せます。
+
+### 6. Ornament Sequence Library & Triggering
+
+#### **概要**
+To add more complexity and flair to sequences, a library of micro-sequences (ornaments) will be introduced. This allows a single step in the main sequencer to trigger a more complex, pre-defined musical phrase.
+
+#### **UI/UX**
+*   A new "ORNAMENT" or "FLAM" mode will be added to the sequencer.
+*   When a step is selected in this mode, the user can choose an ornament from a library via a popup or dedicated panel.
+*   The library will be categorized (e.g., Flams, Drags, Rolls, Trills, Arpeggios).
+*   The main sequencer grid will visually indicate which steps have an ornament trigger applied.
+
+#### **Technical Implementation**
+*   A new data structure for "Ornaments" will be created, defining a series of notes/triggers with fine-grained timing offsets and velocity changes.
+*   The sequencer engine (`useSequencer.ts`) will be modified. When it encounters a step with an ornament trigger, instead of playing a single sample, it will schedule the multiple events defined in the ornament sequence.
+*   All ornament timings will be tempo-synced, scaling correctly with BPM changes.
+*   The ornament library itself will be designed to be easily expandable with new patterns.

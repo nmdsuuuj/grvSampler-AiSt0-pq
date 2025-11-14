@@ -16,12 +16,11 @@ const PARAMS: { value: LockableParam; label: string; min: number; max: number; s
     { value: 'lpFreq', label: 'LP F', min: 20, max: 20000, step: 1, isNote: false },
     { value: 'hpFreq', label: 'HP F', min: 20, max: 20000, step: 1, isNote: false },
     { value: 'velocity', label: 'Velo', min: 0, max: 1, step: 0.01, isNote: false },
-    { value: 'note', label: 'Note', min: 0, max: 127, step: 1, isNote: true },
+    { value: 'detune', label: 'Detune', min: -1200, max: 1200, step: 1, isNote: true },
 ];
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-const FADER_PARAMS = PARAMS.filter(p => !['pitch', 'volume', 'note'].includes(p.value));
-const NOTE_PARAM = PARAMS.find(p => p.value === 'note');
+const FADER_PARAMS = PARAMS.filter(p => !['pitch', 'volume', 'detune'].includes(p.value));
+const DETUNE_PARAM = PARAMS.find(p => p.value === 'detune');
 
 
 interface SeqViewProps {
@@ -244,35 +243,24 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
             {mode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} playbackState={playbackState} />}
             {mode === 'PARAM' && (
                  <div className="flex-shrink-0 bg-white shadow-md p-2 rounded-lg space-y-2">
-                    {NOTE_PARAM && (() => {
-                        const p = NOTE_PARAM;
+                    {DETUNE_PARAM && (() => {
+                        const p = DETUNE_PARAM;
                         const lockedValue = activePattern.steps[sampleId]?.[selectedStep]?.[p.value];
                         
-                        let displayValue;
-                        if (lockedValue !== null && lockedValue !== undefined) {
-                            displayValue = lockedValue;
-                        } else {
-                            displayValue = 60; // Default note (C4)
-                        }
-                        
-                        const formatNote = (val: number) => {
-                             if (lockedValue === null || lockedValue === undefined) return 'Note';
-                             return `${NOTE_NAMES[val % 12]}${Math.floor(val / 12) - 1}`;
-                        };
+                        let displayValue = (lockedValue === null || lockedValue === undefined) ? 0 : lockedValue;
 
                         return (
                             <Fader 
                                 key={p.value}
-                                label={formatNote(displayValue)}
+                                label="Detune (c)"
                                 value={displayValue} 
                                 onChange={(val) => handleParamChange(p.value, val)} 
                                 min={p.min} 
                                 max={p.max} 
                                 step={p.step} 
-                                defaultValue={60}
+                                defaultValue={0}
                                 displayValue={displayValue}
                                 displayPrecision={0}
-                                hideValue={true} // Only show the note name label
                             />
                         );
                     })()}
@@ -320,10 +308,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
             {mode === 'REC' && (
                 <KeyboardInput 
                     playSample={playSample} 
-                    activeSampleId={activeSampleId}
-                    isPlaying={isPlaying}
-                    currentStep={currentStep}
-                    activePatternId={activePatternId}
                 />
             )}
 

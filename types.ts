@@ -19,12 +19,12 @@ export interface Sample {
 
 export interface Step {
     active: boolean;
-    note: number | null; // MIDI note number
+    detune: number | null; // Pitch detune from base note in cents
     velocity: number; // 0-1
 }
 
 // Parameters that can be locked per step for a given sample
-export type LockableParam = 'note' | 'velocity' | 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+export type LockableParam = 'detune' | 'velocity' | 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
 
 export interface Pattern {
     id: number;
@@ -47,7 +47,7 @@ export interface MasterCompressorParams {
 }
 
 export interface PlaybackParams {
-    note: number | null;
+    detune: number | null;
     velocity: number;
     volume: number;
     pitch: number;
@@ -71,6 +71,8 @@ export interface AppState {
     activeGrooveId: number;
     activeGrooveBank: number;
     grooveDepth: number;
+    activeKey: number; // 0-11 for C-B
+    activeScale: string; // Name of the scale
     samples: Sample[];
     patterns: Pattern[];
     activePatternIds: number[]; // one per bank
@@ -105,7 +107,6 @@ export enum ActionType {
     UPDATE_SAMPLE_NAME,
     SET_SAMPLES,
     TOGGLE_STEP,
-    UPDATE_STEP_NOTE,
     UPDATE_PARAM_LOCK,
     CLEAR_PARAM_LOCK_LANE,
     SET_ACTIVE_PATTERN_FOR_BANK,
@@ -127,6 +128,8 @@ export enum ActionType {
     UPDATE_MASTER_COMPRESSOR_PARAM,
     SET_PLAYBACK_TRACK_STATE,
     RECORD_STEP,
+    SET_KEY,
+    SET_SCALE,
 }
 
 export type Action =
@@ -143,7 +146,6 @@ export type Action =
     | { type: ActionType.UPDATE_SAMPLE_NAME; payload: { sampleId: number; name: string } }
     | { type: ActionType.SET_SAMPLES; payload: Sample[] }
     | { type: ActionType.TOGGLE_STEP; payload: { patternId: number; sampleId: number; step: number } }
-    | { type: ActionType.UPDATE_STEP_NOTE; payload: { patternId: number; sampleId: number; step: number; note: number | null } }
     | { type: ActionType.UPDATE_PARAM_LOCK; payload: { patternId: number; sampleId: number; param: LockableParam; step: number; value: number | null } }
     | { type: ActionType.CLEAR_PARAM_LOCK_LANE; payload: { patternId: number; sampleId: number; param: LockableParam } }
     | { type: ActionType.SET_ACTIVE_PATTERN_FOR_BANK; payload: { bankIndex: number; patternId: number } }
@@ -164,4 +166,6 @@ export type Action =
     | { type: ActionType.TOGGLE_MASTER_COMPRESSOR }
     | { type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM; payload: { param: keyof MasterCompressorParams; value: number } }
     | { type: ActionType.SET_PLAYBACK_TRACK_STATE; payload: { bankIndex: number; state: { currentPart: 'A' | 'B'; partRepetition: number; } } }
-    | { type: ActionType.RECORD_STEP; payload: { patternId: number; sampleId: number; step: number; note: number } };
+    | { type: ActionType.RECORD_STEP; payload: { patternId: number; sampleId: number; step: number; detune: number } }
+    | { type: ActionType.SET_KEY, payload: number }
+    | { type: ActionType.SET_SCALE, payload: string };

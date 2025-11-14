@@ -7,7 +7,7 @@ const createEmptySteps = (): Step[][] =>
     Array.from({ length: TOTAL_SAMPLES }, () =>
         Array.from({ length: STEPS_PER_PATTERN }, () => ({
             active: false,
-            note: null, // Default to no note
+            detune: 0, // Default to no detune
             velocity: 1,
         }))
     );
@@ -26,6 +26,8 @@ const initialState: AppState = {
     activeGrooveId: 0,
     activeGrooveBank: 0,
     grooveDepth: 0,
+    activeKey: 0, // C
+    activeScale: 'Chromatic',
     samples: Array.from({ length: TOTAL_SAMPLES }, (_, i) => ({
         id: i,
         name: `Sample ${String.fromCharCode(65 + Math.floor(i / PADS_PER_BANK))}${ (i % PADS_PER_BANK) + 1}`,
@@ -127,8 +129,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
                         newSampleSteps[step] = {
                             ...currentStepState,
                             active: !currentStepState.active,
-                            // Set a default note if activating a step for the first time
-                            note: !currentStepState.active && currentStepState.note === null ? 60 : currentStepState.note,
+                            // Set a default detune if activating a step for the first time
+                            detune: currentStepState.detune === null ? 0 : currentStepState.detune,
                         };
                         newSteps[sampleId] = newSampleSteps;
                         return { ...p, steps: newSteps };
@@ -138,7 +140,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
             };
         }
         case ActionType.RECORD_STEP: {
-            const { patternId, sampleId, step, note } = action.payload;
+            const { patternId, sampleId, step, detune } = action.payload;
             if (step < 0) return state; // Guard against invalid step index
             return {
                 ...state,
@@ -149,7 +151,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
                         newSampleSteps[step] = {
                             ...newSampleSteps[step],
                             active: true,
-                            note: note, // Record the specific note from the keyboard
+                            detune: detune, // Record the specific detune from the keyboard
                         };
                         newSteps[sampleId] = newSampleSteps;
                         return { ...p, steps: newSteps };
@@ -158,10 +160,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 })
             };
         }
-        case ActionType.UPDATE_STEP_NOTE: {
-            // This is handled by UPDATE_PARAM_LOCK now for consistency
-            return state;
-        }
         case ActionType.UPDATE_PARAM_LOCK: {
             const { patternId, sampleId, param, step, value } = action.payload;
             return {
@@ -169,8 +167,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 patterns: state.patterns.map(p => {
                     if (p.id !== patternId) return p;
 
-                    // Handle note and velocity which are on the `steps` object
-                    if (param === 'note' || param === 'velocity') {
+                    // Handle detune and velocity which are on the `steps` object
+                    if (param === 'detune' || param === 'velocity') {
                         const newSteps = [...p.steps];
                         const newSampleSteps = [...newSteps[sampleId]];
                         const currentStepState = newSampleSteps[step];
@@ -201,11 +199,11 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 patterns: state.patterns.map(p => {
                     if (p.id !== patternId) return p;
 
-                    if (param === 'note' || param === 'velocity') {
+                    if (param === 'detune' || param === 'velocity') {
                          const newSteps = [...p.steps];
                         const newSampleSteps = newSteps[sampleId].map(step => ({
                             ...step,
-                            [param]: param === 'note' ? null : 1, // Reset velocity to 1
+                            [param]: param === 'detune' ? 0 : 1, // Reset detune to 0, velocity to 1
                         }));
                         newSteps[sampleId] = newSampleSteps;
                         return { ...p, steps: newSteps };
@@ -312,6 +310,10 @@ const appReducer = (state: AppState, action: Action): AppState => {
             newPlaybackTrackStates[bankIndex] = playbackState;
             return { ...state, playbackTrackStates: newPlaybackTrackStates };
         }
+        case ActionType.SET_KEY:
+            return { ...state, activeKey: action.payload };
+        case ActionType.SET_SCALE:
+            return { ...state, activeScale: action.payload };
         default:
             return state;
     }
