@@ -1,4 +1,4 @@
-// FIX: Removed self-import of 'Groove' which conflicted with the local declaration of 'Groove'.
+
 export interface Groove {
     id: number;
     name: string;
@@ -9,19 +9,29 @@ export interface Sample {
     id: number;
     name: string;
     buffer: AudioBuffer | null;
-    volume: number;
-    pitch: number;
+    volume: number; // Base volume
+    pitch: number;  // Base pitch in semitones
     start: number; // 0-1
     decay: number; // 0-1
     lpFreq: number; // Low-pass filter frequency
     hpFreq: number; // High-pass filter frequency
 }
 
+export interface Step {
+    active: boolean;
+    note: number | null; // MIDI note number
+    velocity: number; // 0-1
+}
+
+// Parameters that can be locked per step for a given sample
+export type LockableParam = 'note' | 'velocity' | 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+
 export interface Pattern {
     id: number;
-    steps: boolean[][]; // [sampleId][step]
-    stepResolutionA: number; // e.g., 16 for 16th notes
-    stepLengthA: number; // 1-16
+    steps: Step[][]; // [sampleId][step]
+    paramLocks: Record<number, Partial<Record<LockableParam, (number | null)[]>>>; // { sampleId: { param: [stepValue, ...] } }
+    stepResolutionA: number;
+    stepLengthA: number;
     loopCountA: number;
     stepResolutionB: number;
     stepLengthB: number;
@@ -78,8 +88,11 @@ export enum ActionType {
     SET_GROOVE_DEPTH,
     UPDATE_SAMPLE_PARAM,
     UPDATE_SAMPLE_NAME,
-    SET_SAMPLES, // for loading/recording
+    SET_SAMPLES,
     TOGGLE_STEP,
+    UPDATE_STEP_NOTE,
+    UPDATE_PARAM_LOCK,
+    CLEAR_PARAM_LOCK_LANE,
     SET_ACTIVE_PATTERN_FOR_BANK,
     UPDATE_PATTERN_PARAMS,
     LOAD_PROJECT_STATE,
@@ -113,8 +126,11 @@ export type Action =
     | { type: ActionType.UPDATE_SAMPLE_NAME; payload: { sampleId: number; name: string } }
     | { type: ActionType.SET_SAMPLES; payload: Sample[] }
     | { type: ActionType.TOGGLE_STEP; payload: { patternId: number; sampleId: number; step: number } }
+    | { type: ActionType.UPDATE_STEP_NOTE; payload: { patternId: number; sampleId: number; step: number; note: number | null } }
+    | { type: ActionType.UPDATE_PARAM_LOCK; payload: { patternId: number; sampleId: number; param: LockableParam; step: number; value: number | null } }
+    | { type: ActionType.CLEAR_PARAM_LOCK_LANE; payload: { patternId: number; sampleId: number; param: LockableParam } }
     | { type: ActionType.SET_ACTIVE_PATTERN_FOR_BANK; payload: { bankIndex: number; patternId: number } }
-    | { type: ActionType.UPDATE_PATTERN_PARAMS; payload: { patternId: number; params: Partial<Omit<Pattern, 'id' | 'steps'>> } }
+    | { type: ActionType.UPDATE_PATTERN_PARAMS; payload: { patternId: number; params: Partial<Omit<Pattern, 'id' | 'steps' | 'paramLocks'>> } }
     | { type: ActionType.LOAD_PROJECT_STATE; payload: Partial<AppState> }
     | { type: ActionType.SET_RECORDING_STATE; payload: boolean }
     | { type: ActionType.SET_ARMED_STATE; payload: boolean }

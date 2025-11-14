@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType } from '../types';
+import { ActionType, LockableParam, Sample } from '../types';
 import { STEPS_PER_PART, GROOVE_PATTERNS, TOTAL_BANKS, PADS_PER_BANK } from '../constants';
 
 interface TrackState {
@@ -10,7 +10,18 @@ interface TrackState {
     partRepetition: number;
 }
 
-export const useSequencer = (playSample: (sampleId: number, time: number) => void) => {
+interface PlaybackParams {
+    note: number | null;
+    velocity: number;
+    volume: number;
+    pitch: number;
+    start: number;
+    decay: number;
+    lpFreq: number;
+    hpFreq: number;
+}
+
+export const useSequencer = (playSample: (sampleId: number, time: number, params: PlaybackParams) => void) => {
     const { state, dispatch } = useContext(AppContext);
     const { isPlaying, audioContext } = state;
 
@@ -61,15 +72,13 @@ export const useSequencer = (playSample: (sampleId: number, time: number) => voi
         });
 
         const scheduler = () => {
-            const { patterns, activePatternIds, grooveDepth, activeGrooveId, bpm, activeSampleBank } = sequencerStateRef.current;
+            const { patterns, activePatternIds, grooveDepth, activeGrooveId, bpm, activeSampleBank, samples } = sequencerStateRef.current;
             if(!audioContext) return;
 
-            // This loop ensures we keep scheduling events as long as there are events within the lookahead window.
             while (true) {
                 let earliestTime = Infinity;
                 let nextTrackIndex = -1;
 
-                // Find which of the 4 tracks has the next event due.
                 for (let i = 0; i < TOTAL_BANKS; i++) {
                     if (trackStates.current[i].nextStepTime < earliestTime) {
                         earliestTime = trackStates.current[i].nextStepTime;
@@ -77,12 +86,10 @@ export const useSequencer = (playSample: (sampleId: number, time: number) => voi
                     }
                 }
                 
-                // If the next event is outside our scheduling window, stop for now.
                 if (earliestTime > audioContext.currentTime + scheduleAheadTime) {
                     break;
                 }
                 
-                // --- Schedule the next event for the determined track ---
                 const trackState = trackStates.current[nextTrackIndex];
                 const patternId = activePatternIds[nextTrackIndex];
                 const pattern = patterns[patternId];
@@ -91,11 +98,25 @@ export const useSequencer = (playSample: (sampleId: number, time: number) => voi
                 const isPartA = trackState.currentPart === 'A';
                 const displayStep = isPartA ? trackState.partStep : trackState.partStep + STEPS_PER_PART;
 
-                // Schedule samples for this track's step
                 const firstSampleInBank = nextTrackIndex * PADS_PER_BANK;
                 const lastSampleInBank = firstSampleInBank + PADS_PER_BANK;
                 for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
-                    if (pattern.steps[sampleId]?.[displayStep]) {
+                    const stepInfo = pattern.steps[sampleId]?.[displayStep];
+                    if (stepInfo?.active) {
+                        const sample = samples[sampleId];
+                        const paramLocks = pattern.paramLocks[sampleId];
+
+                        const playbackParams: PlaybackParams = {
+                            note: paramLocks?.note?.[displayStep] ?? stepInfo.note,
+                            velocity: paramLocks?.velocity?.[displayStep] ?? stepInfo.velocity,
+                            volume: paramLocks?.volume?.[displayStep] ?? sample.volume,
+                            pitch: paramLocks?.pitch?.[displayStep] ?? sample.pitch,
+                            start: paramLocks?.start?.[displayStep] ?? sample.start,
+                            decay: paramLocks?.decay?.[displayStep] ?? sample.decay,
+                            lpFreq: paramLocks?.lpFreq?.[displayStep] ?? sample.lpFreq,
+                            hpFreq: paramLocks?.hpFreq?.[displayStep] ?? sample.hpFreq,
+                        };
+                        
                         const stepResolution = isPartA ? pattern.stepResolutionA : pattern.stepResolutionB;
                         const stepDurationForGroove = 60.0 / bpm / (stepResolution / 4);
                         const groovePattern = GROOVE_PATTERNS[activeGrooveId];
@@ -103,16 +124,15 @@ export const useSequencer = (playSample: (sampleId: number, time: number) => voi
                         const offsetFraction = groovePattern.offsets[grooveOffsetIndex] || 0;
                         const timeShift = stepDurationForGroove * offsetFraction * grooveDepth;
                         const scheduledTime = trackState.nextStepTime + timeShift;
-                        playSample(sampleId, scheduledTime);
+                        
+                        playSample(sampleId, scheduledTime, playbackParams);
                     }
                 }
                 
-                // Update UI playhead based on the active bank's progress
                 if (nextTrackIndex === activeSampleBank) {
                     dispatch({ type: ActionType.SET_CURRENT_STEP, payload: displayStep });
                 }
 
-                // --- Advance this track's state to its next event time ---
                 const stepResolution = isPartA ? pattern.stepResolutionA : pattern.stepResolutionB;
                 const stepDuration = 60.0 / bpm / (stepResolution / 4);
                 trackState.nextStepTime += stepDuration;

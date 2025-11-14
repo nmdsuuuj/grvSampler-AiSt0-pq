@@ -1,6 +1,15 @@
 import React, { createContext, useReducer, Dispatch } from 'react';
-import { AppState, Action, ActionType, Sample, MasterCompressorParams } from '../types';
+import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
+
+const createEmptySteps = (): Step[][] =>
+    Array.from({ length: TOTAL_SAMPLES }, () =>
+        Array.from({ length: STEPS_PER_PATTERN }, () => ({
+            active: false,
+            note: null, // Default to no note
+            velocity: 1,
+        }))
+    );
 
 const initialState: AppState = {
     audioContext: null,
@@ -29,7 +38,8 @@ const initialState: AppState = {
     })),
     patterns: Array.from({ length: TOTAL_PATTERNS }, (_, i) => ({
         id: i,
-        steps: Array.from({ length: TOTAL_SAMPLES }, () => Array(STEPS_PER_PATTERN).fill(false)),
+        steps: createEmptySteps(),
+        paramLocks: {},
         stepResolutionA: 16,
         stepLengthA: 16,
         loopCountA: 1,
@@ -95,21 +105,86 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, samples: action.payload };
         case ActionType.TOGGLE_STEP: {
             const { patternId, sampleId, step } = action.payload;
-            const newPatterns = state.patterns.map(p => {
-                if (p.id === patternId) {
-                    const newSteps = p.steps.map((row, rowIndex) => {
-                        if (rowIndex === sampleId) {
-                            const newRow = [...row];
-                            newRow[step] = !newRow[step];
-                            return newRow;
-                        }
-                        return row;
-                    });
-                    return { ...p, steps: newSteps };
-                }
-                return p;
-            });
-            return { ...state, patterns: newPatterns };
+            return {
+                ...state,
+                patterns: state.patterns.map(p => {
+                    if (p.id === patternId) {
+                        const newSteps = [...p.steps];
+                        const newSampleSteps = [...newSteps[sampleId]];
+                        const currentStepState = newSampleSteps[step];
+                        newSampleSteps[step] = {
+                            ...currentStepState,
+                            active: !currentStepState.active,
+                            // Set a default note if activating a step for the first time
+                            note: !currentStepState.active && currentStepState.note === null ? 60 : currentStepState.note,
+                        };
+                        newSteps[sampleId] = newSampleSteps;
+                        return { ...p, steps: newSteps };
+                    }
+                    return p;
+                }),
+            };
+        }
+        case ActionType.UPDATE_STEP_NOTE: {
+            // This is handled by UPDATE_PARAM_LOCK now for consistency
+            return state;
+        }
+        case ActionType.UPDATE_PARAM_LOCK: {
+            const { patternId, sampleId, param, step, value } = action.payload;
+            return {
+                ...state,
+                patterns: state.patterns.map(p => {
+                    if (p.id !== patternId) return p;
+
+                    // Handle note and velocity which are on the `steps` object
+                    if (param === 'note' || param === 'velocity') {
+                        const newSteps = [...p.steps];
+                        const newSampleSteps = [...newSteps[sampleId]];
+                        const currentStepState = newSampleSteps[step];
+                        newSampleSteps[step] = {
+                            ...currentStepState,
+                            [param]: value,
+                        };
+                        newSteps[sampleId] = newSampleSteps;
+                        return { ...p, steps: newSteps };
+                    }
+
+                    // Handle other params on the `paramLocks` object
+                    const newParamLocks = { ...p.paramLocks };
+                    const newSampleLocks = { ...newParamLocks[sampleId] };
+                    const newParamLane = [...(newSampleLocks[param] || Array(STEPS_PER_PATTERN).fill(null))];
+                    newParamLane[step] = value;
+
+                    newSampleLocks[param] = newParamLane as (number | null)[];
+                    newParamLocks[sampleId] = newSampleLocks;
+                    return { ...p, paramLocks: newParamLocks };
+                }),
+            };
+        }
+        case ActionType.CLEAR_PARAM_LOCK_LANE: {
+             const { patternId, sampleId, param } = action.payload;
+             return {
+                ...state,
+                patterns: state.patterns.map(p => {
+                    if (p.id !== patternId) return p;
+
+                    if (param === 'note' || param === 'velocity') {
+                         const newSteps = [...p.steps];
+                        const newSampleSteps = newSteps[sampleId].map(step => ({
+                            ...step,
+                            [param]: param === 'note' ? null : 1, // Reset velocity to 1
+                        }));
+                        newSteps[sampleId] = newSampleSteps;
+                        return { ...p, steps: newSteps };
+                    }
+                    
+                    const newParamLocks = { ...p.paramLocks };
+                    const newSampleLocks = { ...newParamLocks[sampleId] };
+                    delete newSampleLocks[param];
+                    newParamLocks[sampleId] = newSampleLocks;
+                    return { ...p, paramLocks: newParamLocks };
+                }),
+            };
         }
         case ActionType.SET_ACTIVE_PATTERN_FOR_BANK: {
             const { bankIndex, patternId } = action.payload;

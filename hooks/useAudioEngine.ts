@@ -15,6 +15,16 @@ const usePrevious = <T,>(value: T): T | undefined => {
     return ref.current;
 };
 
+interface PlaybackParams {
+    note: number | null;
+    velocity: number;
+    volume: number;
+    pitch: number;
+    start: number;
+    decay: number;
+    lpFreq: number;
+    hpFreq: number;
+}
 
 export const useAudioEngine = () => {
     const { state, dispatch } = useContext(AppContext);
@@ -125,52 +135,23 @@ export const useAudioEngine = () => {
         }
         const now = audioContext.currentTime;
 
-        // 1. Sync Sample Parameters (Volume, Pitch, Filters)
+        // 1. Sync Base Sample Parameters (used for manual playing, not sequencing)
         if (prevSamples) {
             samples.forEach((currentSample, i) => {
                 const prevSample = prevSamples[i];
                 if (!prevSample) return;
 
-                // Sync Volume
                 if (currentSample.volume !== prevSample.volume) {
                     const gainNode = sampleGainsRef.current[i];
-                    if (gainNode) {
-                        gainNode.gain.cancelScheduledValues(now);
-                        gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-                        gainNode.gain.linearRampToValueAtTime(currentSample.volume, now + RAMP_TIME);
-                    }
+                    if (gainNode) gainNode.gain.setValueAtTime(currentSample.volume, now);
                 }
-                
-                // Sync Pitch
-                if (currentSample.pitch !== prevSample.pitch) {
-                    const activeSampleSources = activeSourcesRef.current.get(i);
-                    if (activeSampleSources) {
-                        activeSampleSources.forEach(source => {
-                            source.detune.cancelScheduledValues(now);
-                            source.detune.setValueAtTime(source.detune.value, now);
-                            source.detune.linearRampToValueAtTime(currentSample.pitch * 100, now + RAMP_TIME);
-                        });
-                    }
-                }
-                
-                // Sync LP Freq
                 if (currentSample.lpFreq !== prevSample.lpFreq) {
-                    const filterNode = lpFilterNodesRef.current[i];
-                    if (filterNode) {
-                        filterNode.frequency.cancelScheduledValues(now);
-                        filterNode.frequency.setValueAtTime(filterNode.frequency.value, now);
-                        filterNode.frequency.linearRampToValueAtTime(currentSample.lpFreq, now + RAMP_TIME);
-                    }
+                     const filterNode = lpFilterNodesRef.current[i];
+                    if (filterNode) filterNode.frequency.setValueAtTime(currentSample.lpFreq, now);
                 }
-
-                // Sync HP Freq
                 if (currentSample.hpFreq !== prevSample.hpFreq) {
-                    const filterNode = hpFilterNodesRef.current[i];
-                    if (filterNode) {
-                        filterNode.frequency.cancelScheduledValues(now);
-                        filterNode.frequency.setValueAtTime(filterNode.frequency.value, now);
-                        filterNode.frequency.linearRampToValueAtTime(currentSample.hpFreq, now + RAMP_TIME);
-                    }
+                     const filterNode = hpFilterNodesRef.current[i];
+                    if (filterNode) filterNode.frequency.setValueAtTime(currentSample.hpFreq, now);
                 }
             });
         }
@@ -241,7 +222,7 @@ export const useAudioEngine = () => {
     }, [samples, bankVolumes, bankPans, bankMutes, bankSolos, masterVolume, audioContext, prevSamples, masterCompressorOn, masterCompressorParams]);
     
 
-    const playSample = useCallback((sampleId: number, scheduleTime: number) => {
+    const playSample = useCallback((sampleId: number, scheduleTime: number, playbackParams?: PlaybackParams) => {
         const { audioContext: ctx, samples: currentSamples } = stateRef.current;
         if (!ctx || lpFilterNodesRef.current.length === 0) return;
         
@@ -255,33 +236,63 @@ export const useAudioEngine = () => {
         
         const envelopeGainNode = ctx.createGain();
 
+        // Connect graph for this note
         source.connect(envelopeGainNode);
-        envelopeGainNode.connect(lpFilterNodesRef.current[sampleId]);
+        const lpNode = lpFilterNodesRef.current[sampleId];
+        const hpNode = hpFilterNodesRef.current[sampleId];
+        const sampleGainNode = sampleGainsRef.current[sampleId];
+        envelopeGainNode.connect(lpNode);
         
-        // Use setValueAtTime for consistency, even if it's before the start time.
-        source.detune.setValueAtTime(sample.pitch * 100, effectiveTime);
+        const params = playbackParams || {
+            note: null,
+            velocity: 1,
+            volume: sample.volume,
+            pitch: sample.pitch,
+            start: sample.start,
+            decay: sample.decay,
+            lpFreq: sample.lpFreq,
+            hpFreq: sample.hpFreq
+        };
+
+        // --- Apply parameters ---
+        // Base sample gain (channel volume)
+        sampleGainNode.gain.setValueAtTime(params.volume, effectiveTime);
         
+        // Filters
+        lpNode.frequency.setValueAtTime(params.lpFreq, effectiveTime);
+        hpNode.frequency.setValueAtTime(params.hpFreq, effectiveTime);
+
+        // Pitch
+        // Note: 60 is middle C (C4). We assume the sample's base pitch is C4.
+        const totalDetuneCents = (params.pitch * 100) + (params.note ? (params.note - 60) * 100 : 0);
+        source.detune.setValueAtTime(totalDetuneCents, effectiveTime);
+        
+        // Envelope
         const duration = sample.buffer.duration;
-        const startTime = duration * sample.start;
-        const decayDuration = (duration - startTime) * sample.decay;
+        const startTime = duration * params.start;
+        const decayDuration = (duration - startTime) * params.decay;
         const envelope = envelopeGainNode.gain;
         const releaseTime = 0.008;
 
         envelope.cancelScheduledValues(effectiveTime);
         envelope.setValueAtTime(0, effectiveTime);
-        envelope.linearRampToValueAtTime(1, effectiveTime + RAMP_TIME);
+        // Ramp up, applying velocity
+        envelope.linearRampToValueAtTime(params.velocity, effectiveTime + RAMP_TIME);
 
         const stopTime = effectiveTime + decayDuration;
         if (decayDuration > (RAMP_TIME + releaseTime)) {
-            envelope.setValueAtTime(1, stopTime - releaseTime);
+            // Hold at velocity-adjusted level then ramp down
+            envelope.setValueAtTime(params.velocity, stopTime - releaseTime);
             envelope.linearRampToValueAtTime(0, stopTime);
         } else {
+            // If decay is very short, just ramp down immediately
             envelope.linearRampToValueAtTime(0, stopTime);
         }
         
         source.start(effectiveTime, startTime);
         source.stop(stopTime);
 
+        // Keep track of active sources for potential real-time pitch changes (not fully implemented sync)
         if (!activeSourcesRef.current.has(sampleId)) {
             activeSourcesRef.current.set(sampleId, new Set());
         }

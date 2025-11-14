@@ -3,21 +3,23 @@ import React, { useContext, useState } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, Pattern } from '../../types';
 import Pad from '../Pad';
-import { PADS_PER_BANK, STEPS_PER_PART, LOOP_PRESETS, PATTERNS_PER_BANK } from '../../constants';
+import { PADS_PER_BANK, STEPS_PER_PART, LOOP_PRESETS, PATTERNS_PER_BANK, STEPS_PER_PATTERN } from '../../constants';
 import Fader from '../Fader';
 import BankSelector from '../BankSelector';
+import ParamLockEditor from '../ParamLockEditor';
 
 interface SeqViewProps {
-    playSample: (id: number, time: number) => void;
+    playSample: (id: number, time: number, params?: any) => void;
     startRecording: () => void;
     stopRecording: () => void;
 }
 
 const RATE_VALUES = [32, 24, 16, 12, 8, 6, 4, 3];
+type SeqMode = 'PART' | 'PARAM';
 
-const PatternSettings: React.FC<{
+const PartSettings: React.FC<{
     activePattern: Pattern;
-    updatePatternParams: (params: Partial<Omit<Pattern, 'id' | 'steps'>>) => void;
+    updatePatternParams: (params: Partial<Omit<Pattern, 'id' | 'steps' | 'paramLocks'>>) => void;
 }> = ({ activePattern, updatePatternParams }) => {
 
     const handleLoopChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -83,6 +85,8 @@ const PatternSettings: React.FC<{
 const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     const { state, dispatch } = useContext(AppContext);
     const [patternViewBank, setPatternViewBank] = useState(0);
+    const [mode, setMode] = useState<SeqMode>('PART');
+
     const {
         patterns,
         activePatternIds,
@@ -93,7 +97,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
         audioContext,
     } = state;
     
-    // The pattern being edited/viewed is the one for the currently active *sample* bank
     const activePatternId = activePatternIds[activeSampleBank];
     const activePattern = patterns.find(p => p.id === activePatternId);
 
@@ -116,11 +119,10 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     };
     
     const handlePatternPadClick = (id: number) => {
-        // Assigns the clicked pattern (with global ID) to the currently active sample bank.
         dispatch({ type: ActionType.SET_ACTIVE_PATTERN_FOR_BANK, payload: { bankIndex: activeSampleBank, patternId: id } });
     };
 
-    const updatePatternParams = (params: Partial<Omit<Pattern, 'id' | 'steps'>>) => {
+    const updatePatternParams = (params: Partial<Omit<Pattern, 'id' | 'steps' | 'paramLocks'>>) => {
         if (!activePattern) return;
         dispatch({
             type: ActionType.UPDATE_PATTERN_PARAMS,
@@ -129,8 +131,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     };
 
     const sampleBankOffset = activeSampleBank * PADS_PER_BANK;
-    
-    // Calculate the offset for which patterns to display from the dedicated set of 32
     const patternBankOffsetForView = (activeSampleBank * PATTERNS_PER_BANK) + (patternViewBank * PADS_PER_BANK);
 
     if (!activePattern) {
@@ -141,23 +141,37 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
 
     return (
         <div className="flex flex-col h-full p-1 justify-between">
+            <div className="flex items-center justify-center space-x-1 p-1 bg-emerald-200 rounded-lg mb-1">
+                <button 
+                    onClick={() => setMode('PART')}
+                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${mode === 'PART' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
+                >
+                    PART
+                </button>
+                 <button 
+                    onClick={() => setMode('PARAM')}
+                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${mode === 'PARAM' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
+                >
+                    PARAM
+                </button>
+            </div>
             
-            <PatternSettings activePattern={activePattern} updatePatternParams={updatePatternParams} />
+            {mode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} />}
+            {mode === 'PARAM' && <ParamLockEditor activePattern={activePattern} activeSampleId={activeSampleId} />}
 
             {/* Step Sequencer Grid */}
             <div className="bg-white shadow-md p-2 rounded-lg">
                 <div className="grid grid-cols-8 gap-1.5">
-                    {Array.from({ length: STEPS_PER_PART * 2 }).map((_, stepIndex) => {
-                        const isStepOn = activePattern.steps[sampleId]?.[stepIndex];
+                    {Array.from({ length: STEPS_PER_PATTERN }).map((_, stepIndex) => {
+                        const stepInfo = activePattern.steps[sampleId]?.[stepIndex];
+                        const isStepOn = stepInfo?.active;
                         const isCurrentStep = currentStep === stepIndex;
                         const isPartB = stepIndex >= STEPS_PER_PART;
                         
                         let colorClasses;
                         if (isPartB) {
-                            // Part B uses fuchsia for "on" steps
                             colorClasses = isStepOn ? 'bg-fuchsia-400' : 'bg-emerald-100';
                         } else {
-                            // Part A uses pink for "on" steps
                             colorClasses = isStepOn ? 'bg-pink-400' : 'bg-emerald-200';
                         }
                         
@@ -204,7 +218,9 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                             const globalPatternId = patternBankOffsetForView + i;
                             const localPatternNum = (patternViewBank * PADS_PER_BANK) + i + 1;
                             const isActive = state.activePatternIds[activeSampleBank] === globalPatternId;
-                            return <Pad key={i} id={globalPatternId} label={`P${localPatternNum}`} onClick={handlePatternPadClick} isActive={isActive} hasContent={patterns[globalPatternId]?.steps.some(row => row.some(step => step))} padType="pattern" />
+                            // Check if any step in any sample lane is active for hasContent
+                            const hasContent = patterns[globalPatternId]?.steps.some(sampleLane => sampleLane.some(step => step.active));
+                            return <Pad key={i} id={globalPatternId} label={`P${localPatternNum}`} onClick={handlePatternPadClick} isActive={isActive} hasContent={hasContent} padType="pattern" />
                         })}
                     </div>
                 </div>

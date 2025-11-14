@@ -28,15 +28,22 @@ export interface Project {
   samples: StorableSample[];
 }
 
+export interface SampleKit {
+  id?: number;
+  name: string;
+  createdAt: Date;
+  samples: StorableSample[];
+}
+
 class ProjectDB extends Dexie {
   projects!: Table<Project>;
+  sampleKits!: Table<SampleKit>;
 
   constructor() {
     super('GrooveSamplerDB');
-    // FIX: Explicitly cast 'this' to Dexie to resolve a potential
-    // TypeScript type inference issue with the extended class.
-    (this as Dexie).version(1).stores({
+    this.version(2).stores({
       projects: '++id, name, createdAt',
+      sampleKits: '++id, name, createdAt',
     });
   }
 }

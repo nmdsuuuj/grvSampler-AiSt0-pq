@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useEffect } from 'react';
 import { AppContext } from './context/AppContext';
 import { ActionType } from './types';
@@ -63,7 +64,8 @@ const App: React.FC = () => {
       case 'MIXER':
           return <MixerView startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />;
       case 'PROJECT':
-        return <ProjectView loadSampleFromBlob={loadSampleFromBlob} />;
+        // FIX: Removed unused `loadSampleFromBlob` prop from `ProjectView` component, as it does not accept any props.
+        return <ProjectView />;
       default:
         return <SampleView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} loadSampleFromBlob={loadSampleFromBlob} />;
     }
