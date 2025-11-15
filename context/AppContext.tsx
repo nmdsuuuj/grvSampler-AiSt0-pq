@@ -78,6 +78,9 @@ const initialState: AppState = {
         release: 0.25,
     },
     playbackTrackStates: Array.from({ length: TOTAL_BANKS }, () => ({ currentPart: 'A', partRepetition: 0 })),
+    // MIDI Learn state
+    midiLearnMode: null,
+    midiMappings: [],
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -605,6 +608,23 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, keyboardOctave: action.payload };
         case ActionType.SET_SEQ_MODE:
             return { ...state, seqMode: action.payload };
+        case ActionType.START_MIDI_LEARN:
+            return { ...state, midiLearnMode: action.payload };
+        case ActionType.STOP_MIDI_LEARN:
+            return { ...state, midiLearnMode: null };
+        case ActionType.ADD_MIDI_MAPPING: {
+            // Remove any existing mapping for this CC or paramId
+            const newMappings = state.midiMappings.filter(
+                m => m.cc !== action.payload.cc && m.paramId !== action.payload.paramId
+            );
+            newMappings.push(action.payload);
+            return { ...state, midiMappings: newMappings, midiLearnMode: null };
+        }
+        case ActionType.REMOVE_MIDI_MAPPING:
+            return {
+                ...state,
+                midiMappings: state.midiMappings.filter(m => m.cc !== action.payload.cc),
+            };
         default:
             return state;
     }

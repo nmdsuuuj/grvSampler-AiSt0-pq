@@ -14,8 +14,10 @@ import ProjectView from './components/views/ProjectView';
 
 import { useAudioEngine } from './hooks/useAudioEngine';
 import { useSequencer } from './hooks/useSequencer';
+import { useMidi } from './hooks/useMidi';
 import { PADS_PER_BANK } from './constants';
 import SCALES from './scales';
+import { MidiMapping } from './types';
 
 type View = 'SAMPLE' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT';
 
@@ -67,6 +69,128 @@ const App: React.FC = () => {
     stopMasterRecording,
   } = useAudioEngine();
   useSequencer(playSample);
+
+  // MIDI Learn and Control handling
+  const handleMidiMessage = useCallback((cc: number, value: number) => {
+    const { state: appState, dispatch: appDispatch } = { state: stateRef.current, dispatch };
+    
+    // Normalize MIDI value (0-127) to 0-1
+    const normalizedValue = value / 127;
+
+    // If in MIDI learn mode, create a mapping
+    if (appState.midiLearnMode) {
+      const paramId = appState.midiLearnMode;
+      
+      // Determine min/max based on parameter type
+      let min = 0;
+      let max = 1;
+      
+      if (paramId.startsWith('sample.')) {
+        const [, sampleIdStr, param] = paramId.split('.');
+        const sampleId = parseInt(sampleIdStr, 10);
+        const sample = appState.samples[sampleId];
+        if (sample) {
+          switch (param) {
+            case 'volume':
+            case 'start':
+            case 'decay':
+              min = 0; max = 1;
+              break;
+            case 'pitch':
+              min = -24; max = 24;
+              break;
+            case 'lpFreq':
+            case 'hpFreq':
+              min = 20; max = 20000;
+              break;
+          }
+        }
+      } else if (paramId.startsWith('bank.')) {
+        const [, bankIdStr, param] = paramId.split('.');
+        if (param === 'volume') {
+          min = 0; max = 1;
+        } else if (param === 'pan') {
+          min = -1; max = 1;
+        }
+      } else if (paramId === 'master.volume') {
+        min = 0; max = 1.5;
+      } else if (paramId.startsWith('compressor.')) {
+        const param = paramId.split('.')[1] as keyof typeof appState.masterCompressorParams;
+        switch (param) {
+          case 'threshold':
+            min = -100; max = 0;
+            break;
+          case 'ratio':
+            min = 1; max = 20;
+            break;
+          case 'knee':
+            min = 0; max = 40;
+            break;
+          case 'attack':
+          case 'release':
+            min = 0; max = 1;
+            break;
+        }
+      }
+
+      const mapping: MidiMapping = {
+        cc,
+        paramId,
+        min,
+        max,
+      };
+      
+      appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+      return;
+    }
+
+    // Otherwise, apply mappings if they exist
+    const mapping = appState.midiMappings.find(m => m.cc === cc);
+    if (mapping) {
+      // Map normalized value (0-1) to parameter range
+      const paramValue = mapping.min + (normalizedValue * (mapping.max - mapping.min));
+      
+      if (mapping.paramId.startsWith('sample.')) {
+        const [, sampleIdStr, param] = mapping.paramId.split('.');
+        const sampleId = parseInt(sampleIdStr, 10);
+        const paramName = param as 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+        
+        // Handle log scale for frequencies
+        if (paramName === 'lpFreq' || paramName === 'hpFreq') {
+          const MIN_FREQ = 20, MAX_FREQ = 20000;
+          const linearValue = normalizedValue;
+          const logValue = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, linearValue);
+          appDispatch({
+            type: ActionType.UPDATE_SAMPLE_PARAM,
+            payload: { sampleId, param: paramName, value: logValue },
+          });
+        } else {
+          appDispatch({
+            type: ActionType.UPDATE_SAMPLE_PARAM,
+            payload: { sampleId, param: paramName, value: paramValue },
+          });
+        }
+      } else if (mapping.paramId.startsWith('bank.')) {
+        const [, bankIdStr, param] = mapping.paramId.split('.');
+        const bankIndex = parseInt(bankIdStr, 10);
+        if (param === 'volume') {
+          appDispatch({ type: ActionType.SET_BANK_VOLUME, payload: { bankIndex, volume: paramValue } });
+        } else if (param === 'pan') {
+          appDispatch({ type: ActionType.SET_BANK_PAN, payload: { bankIndex, pan: paramValue } });
+        }
+      } else if (mapping.paramId === 'master.volume') {
+        appDispatch({ type: ActionType.SET_MASTER_VOLUME, payload: paramValue });
+      } else if (mapping.paramId.startsWith('compressor.')) {
+        const param = mapping.paramId.split('.')[1] as keyof typeof appState.masterCompressorParams;
+        appDispatch({
+          type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM,
+          payload: { param, value: paramValue },
+        });
+      }
+    }
+  }, [dispatch]);
+
+  useMidi(handleMidiMessage);
 
   // --- PC Keyboard Controls ---
   const handlePCKeyboardInput = useCallback((event: KeyboardEvent) => {

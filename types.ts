@@ -62,6 +62,26 @@ export interface PlaybackParams {
     hpFreq: number;
 }
 
+// MIDI Learn types
+export type MidiParamId = 
+    | `sample.${number}.volume`
+    | `sample.${number}.pitch`
+    | `sample.${number}.start`
+    | `sample.${number}.decay`
+    | `sample.${number}.lpFreq`
+    | `sample.${number}.hpFreq`
+    | `bank.${number}.volume`
+    | `bank.${number}.pan`
+    | `master.volume`
+    | `compressor.${keyof MasterCompressorParams}`;
+
+export interface MidiMapping {
+    cc: number; // MIDI CC number (0-127)
+    paramId: MidiParamId;
+    min: number; // Parameter min value
+    max: number; // Parameter max value
+}
+
 export interface AppState {
     audioContext: AudioContext | null;
     isInitialized: boolean;
@@ -99,6 +119,9 @@ export interface AppState {
         currentPart: 'A' | 'B';
         partRepetition: number;
     }[];
+    // MIDI Learn state
+    midiLearnMode: MidiParamId | null; // null = not learning, otherwise the param ID being learned
+    midiMappings: MidiMapping[]; // Array of MIDI CC to parameter mappings
 }
 
 export enum ActionType {
@@ -148,6 +171,10 @@ export enum ActionType {
     PASTE_PATTERN,
     SET_KEYBOARD_OCTAVE,
     SET_SEQ_MODE,
+    START_MIDI_LEARN,
+    STOP_MIDI_LEARN,
+    ADD_MIDI_MAPPING,
+    REMOVE_MIDI_MAPPING,
 }
 
 export type Action =
@@ -196,4 +223,8 @@ export type Action =
     | { type: ActionType.COPY_PATTERN, payload: { patternId: number } }
     | { type: ActionType.PASTE_PATTERN, payload: { patternId: number } }
     | { type: ActionType.SET_KEYBOARD_OCTAVE, payload: number }
-    | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' };
+    | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' }
+    | { type: ActionType.START_MIDI_LEARN, payload: MidiParamId }
+    | { type: ActionType.STOP_MIDI_LEARN }
+    | { type: ActionType.ADD_MIDI_MAPPING, payload: MidiMapping }
+    | { type: ActionType.REMOVE_MIDI_MAPPING, payload: { cc: number } };
