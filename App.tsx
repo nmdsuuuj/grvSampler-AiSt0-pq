@@ -84,10 +84,19 @@ const App: React.FC = () => {
           isRecording, isArmed, samples
       } = appState;
   
-      // Prevent handling if an input field is focused
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) {
+      // Prevent handling if a text-based input field is focused, but allow faders.
+      const targetElement = event.target as HTMLElement;
+      if (targetElement.tagName === 'INPUT') {
+        const inputEl = targetElement as HTMLInputElement;
+        // Block only for text-like inputs, not for range sliders (faders).
+        if (inputEl.type === 'text' || inputEl.type === 'number') {
+            return;
+        }
+      }
+      if (targetElement.tagName === 'TEXTAREA' || targetElement.tagName === 'SELECT') {
           return;
       }
+
 
       // Use event.key directly, toLowerCase() can cause issues with keys like '/'
       const key = event.key;

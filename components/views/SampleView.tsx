@@ -1,11 +1,11 @@
 
-
 import React, { useState, useRef, useCallback } from 'react';
 import { Action, ActionType, PlaybackParams, Sample } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
 import { PADS_PER_BANK } from '../../constants';
 import BankSelector from '../BankSelector';
+import { KITS, SampleKit } from '../../kits';
 
 interface SampleViewProps {
     playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
@@ -24,6 +24,19 @@ interface SampleViewProps {
     // Dispatch and callbacks
     dispatch: React.Dispatch<Action>;
 }
+
+
+// Helper to decode base64
+const base64ToArrayBuffer = (base64: string) => {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
 
 // Helper function to encode AudioBuffer to a WAV Blob
 const encodeWav = (audioBuffer: AudioBuffer): Blob => {
@@ -75,6 +88,33 @@ const encodeWav = (audioBuffer: AudioBuffer): Blob => {
     return new Blob([view], { type: 'audio/wav' });
 };
 
+const KitModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onSelect: (kit: SampleKit) => void;
+}> = ({ isOpen, onClose, onSelect }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-white rounded-lg shadow-xl p-4 w-11/12 max-w-sm" onClick={e => e.stopPropagation()}>
+                <h3 className="font-bold text-lg text-center mb-3">Load Drum Kit</h3>
+                <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                    {KITS.map(kit => (
+                        <button
+                            key={kit.name}
+                            onClick={() => onSelect(kit)}
+                            className="bg-emerald-200 text-emerald-800 rounded p-3 text-sm font-bold hover:bg-emerald-300 transition-colors text-left"
+                        >
+                            {kit.name}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const SampleView: React.FC<SampleViewProps> = ({ 
     playSample, startRecording, stopRecording, loadSampleFromBlob,
@@ -84,6 +124,7 @@ const SampleView: React.FC<SampleViewProps> = ({
     const activeSample = samples[activeSampleId];
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isSamplingMode, setIsSamplingMode] = useState(true);
+    const [isKitModalOpen, setIsKitModalOpen] = useState(false);
 
     const handleParamChange = useCallback((param: 'pitch' | 'start' | 'volume' | 'decay' | 'lpFreq' | 'hpFreq', value: number) => {
         dispatch({
@@ -139,6 +180,34 @@ const SampleView: React.FC<SampleViewProps> = ({
         dispatch({ type: ActionType.SET_RECORDING_THRESHOLD, payload: actualValue });
     }, [dispatch]);
     
+    const handleLoadKit = useCallback(async (kit: SampleKit) => {
+        if (!audioContext) return;
+        setIsKitModalOpen(false);
+    
+        const newSamples = [...samples];
+        const bankOffset = activeSampleBank * PADS_PER_BANK;
+    
+        const decodingPromises = kit.samples.map(async (kitSample, index) => {
+            if (index >= PADS_PER_BANK) return;
+    
+            const targetSampleId = bankOffset + index;
+            const targetSample = newSamples[targetSampleId];
+    
+            try {
+                const arrayBuffer = base64ToArrayBuffer(kitSample.data);
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                newSamples[targetSampleId] = { ...targetSample, name: kitSample.name, buffer: audioBuffer };
+            } catch (e) {
+                console.error(`Error decoding sample ${kitSample.name}:`, e);
+            }
+        });
+    
+        await Promise.all(decodingPromises);
+    
+        dispatch({ type: ActionType.SET_SAMPLES, payload: newSamples });
+    }, [audioContext, samples, activeSampleBank, dispatch]);
+
     const MIN_FREQ = 20, MAX_FREQ = 20000;
     const linearToLog = (v: number) => MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, v);
     const logToLinear = (v: number) => (v <= MIN_FREQ) ? 0 : (v >= MAX_FREQ) ? 1 : Math.log(v / MIN_FREQ) / Math.log(MAX_FREQ / MIN_FREQ);
@@ -160,6 +229,7 @@ const SampleView: React.FC<SampleViewProps> = ({
 
     return (
         <div className="flex flex-col h-full p-1 space-y-1">
+            <KitModal isOpen={isKitModalOpen} onClose={() => setIsKitModalOpen(false)} onSelect={handleLoadKit} />
             <input type="file" accept="audio/*" ref={fileInputRef} onChange={handleFileSelected} className="hidden" />
 
             <div className="flex items-center justify-between space-x-2 flex-shrink-0 bg-white shadow p-1 rounded-lg">
@@ -188,10 +258,11 @@ const SampleView: React.FC<SampleViewProps> = ({
             <div className="bg-white shadow-md p-2 rounded-lg flex flex-col justify-around flex-grow">
                 {isSamplingMode ? (
                     <div className="space-y-2">
-                        <div className="grid grid-cols-5 gap-1 text-center">
+                        <div className="grid grid-cols-6 gap-1 text-center">
                             <button onClick={handleRecordClick} className={`py-2 text-sm font-bold rounded transition-colors ${armButtonClasses}`}>{buttonLabel}</button>
                             <button onClick={() => dispatch({ type: ActionType.COPY_SAMPLE })} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-2 rounded text-xs">Copy</button>
                             <button onClick={() => dispatch({ type: ActionType.PASTE_SAMPLE })} disabled={!sampleClipboard} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-2 rounded text-xs disabled:bg-emerald-100 disabled:text-emerald-400 disabled:cursor-not-allowed">Paste</button>
+                            <button onClick={() => setIsKitModalOpen(true)} className="bg-pink-400 hover:bg-pink-500 text-white font-bold py-2 rounded text-xs">Load Kit</button>
                             <button onClick={handleFileImportClick} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs">Imprt</button>
                             <button onClick={handleExport} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs">Exprt</button>
                         </div>

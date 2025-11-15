@@ -24,9 +24,9 @@ const initialState: AppState = {
     currentSteps: Array(TOTAL_BANKS).fill(-1),
     activeSampleId: 0,
     activeSampleBank: 0,
-    activeGrooveId: 0,
-    activeGrooveBank: 0,
-    grooveDepth: 0,
+    // "Live" state, loaded from the active pattern for the active bank.
+    activeGrooveIds: Array(TOTAL_BANKS).fill(0),
+    grooveDepths: Array(TOTAL_BANKS).fill(0),
     activeKey: 0, // C
     activeScale: 'Chromatic',
     keyboardOctave: 4,
@@ -54,6 +54,9 @@ const initialState: AppState = {
         loopCountB: 1,
         playbackKey: 0,
         playbackScale: 'Thru',
+        // Each pattern now stores its own groove settings.
+        grooveIds: Array(TOTAL_BANKS).fill(0),
+        grooveDepths: Array(TOTAL_BANKS).fill(0),
     })),
     activePatternIds: Array(TOTAL_BANKS).fill(0).map((_, i) => i * (TOTAL_PATTERNS / TOTAL_BANKS)), // Bank A gets P1 (id 0), B gets P33 (id 32), etc.
     grooves: GROOVE_PATTERNS,
@@ -98,15 +101,64 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, currentSteps: newCurrentSteps };
         }
         case ActionType.SET_ACTIVE_SAMPLE:
-            return { ...state, activeSampleId: action.payload, activeSampleBank: Math.floor(action.payload / PADS_PER_BANK) };
+             // When changing sample, also change bank and load that bank's active pattern's groove state
+            const newBankIndexForSample = Math.floor(action.payload / PADS_PER_BANK);
+            const activePatternIdForSample = state.activePatternIds[newBankIndexForSample];
+            const activePatternForSample = state.patterns.find(p => p.id === activePatternIdForSample);
+            return {
+                ...state,
+                activeSampleId: action.payload,
+                activeSampleBank: newBankIndexForSample,
+                activeGrooveIds: activePatternForSample?.grooveIds || state.activeGrooveIds,
+                grooveDepths: activePatternForSample?.grooveDepths || state.grooveDepths,
+            };
         case ActionType.SET_ACTIVE_SAMPLE_BANK:
-            return { ...state, activeSampleBank: action.payload, activeSampleId: action.payload * PADS_PER_BANK };
-        case ActionType.SET_ACTIVE_GROOVE:
-            return { ...state, activeGrooveId: action.payload };
-        case ActionType.SET_ACTIVE_GROOVE_BANK:
-             return { ...state, activeGrooveBank: action.payload };
-        case ActionType.SET_GROOVE_DEPTH:
-            return { ...state, grooveDepth: action.payload };
+            // When changing bank, load that bank's active pattern's groove state
+            const activePatternIdForBank = state.activePatternIds[action.payload];
+            const activePatternForBank = state.patterns.find(p => p.id === activePatternIdForBank);
+            return {
+                ...state,
+                activeSampleBank: action.payload,
+                activeSampleId: action.payload * PADS_PER_BANK,
+                activeGrooveIds: activePatternForBank?.grooveIds || state.activeGrooveIds,
+                grooveDepths: activePatternForBank?.grooveDepths || state.grooveDepths,
+            };
+        case ActionType.SET_ACTIVE_GROOVE: {
+            const { bankIndex, grooveId } = action.payload;
+            const newActiveGrooveIds = [...state.activeGrooveIds];
+            newActiveGrooveIds[bankIndex] = grooveId;
+
+            // Also save this change back to the currently active pattern for that bank
+            const activePatternId = state.activePatternIds[bankIndex];
+            const newPatterns = state.patterns.map(p => {
+                if (p.id === activePatternId) {
+                    const newPatternGrooveIds = [...p.grooveIds];
+                    newPatternGrooveIds[bankIndex] = grooveId;
+                    return { ...p, grooveIds: newPatternGrooveIds };
+                }
+                return p;
+            });
+
+            return { ...state, activeGrooveIds: newActiveGrooveIds, patterns: newPatterns };
+        }
+        case ActionType.SET_GROOVE_DEPTH: {
+            const { bankIndex, value } = action.payload;
+            const newGrooveDepths = [...state.grooveDepths];
+            newGrooveDepths[bankIndex] = value;
+
+            // Also save this change back to the currently active pattern for that bank
+            const activePatternId = state.activePatternIds[bankIndex];
+            const newPatterns = state.patterns.map(p => {
+                if (p.id === activePatternId) {
+                    const newPatternGrooveDepths = [...p.grooveDepths];
+                    newPatternGrooveDepths[bankIndex] = value;
+                    return { ...p, grooveDepths: newPatternGrooveDepths };
+                }
+                return p;
+            });
+            
+            return { ...state, grooveDepths: newGrooveDepths, patterns: newPatterns };
+        }
         case ActionType.UPDATE_SAMPLE_PARAM: {
             const { sampleId, param, value } = action.payload;
             return {
@@ -173,6 +225,48 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return {
                 ...state,
                 patterns: newPatterns,
+            };
+        }
+        case ActionType.APPLY_BANK_A_DRUM_TEMPLATE: {
+            const { patternId, sequences } = action.payload;
+        
+            return {
+                ...state,
+                patterns: state.patterns.map(pattern => {
+                    if (pattern.id !== patternId) {
+                        return pattern;
+                    }
+        
+                    const newSteps = pattern.steps.map(lane => [...lane]);
+                    
+                    // Apply sequences only to Bank A's pads (sample IDs 0-7)
+                    for (const padIndexStr in sequences) {
+                        const padIndex = parseInt(padIndexStr, 10);
+                        if (padIndex >= 0 && padIndex < PADS_PER_BANK) {
+                            const sampleId = padIndex; // In Bank A, sampleId is the same as padIndex
+                            const templateSteps = sequences[padIndex];
+                            if (templateSteps) {
+                                 newSteps[sampleId] = newSteps[sampleId].map((originalStep, stepIndex) => ({
+                                    ...originalStep,
+                                    active: templateSteps[stepIndex] ?? originalStep.active,
+                                }));
+                            }
+                        }
+                    }
+
+                    // Also apply a default swing groove to Bank A
+                    const newGrooveIds = [...pattern.grooveIds];
+                    const newGrooveDepths = [...pattern.grooveDepths];
+                    newGrooveIds[0] = 1; // Swing 16S
+                    newGrooveDepths[0] = 0.3; // 30% depth
+        
+                    return {
+                        ...pattern,
+                        steps: newSteps,
+                        grooveIds: newGrooveIds,
+                        grooveDepths: newGrooveDepths,
+                    };
+                }),
             };
         }
         case ActionType.RANDOMIZE_SEQUENCE: {
@@ -350,7 +444,16 @@ const appReducer = (state: AppState, action: Action): AppState => {
             const { bankIndex, patternId } = action.payload;
             const newActivePatternIds = [...state.activePatternIds];
             newActivePatternIds[bankIndex] = patternId;
-            return { ...state, activePatternIds: newActivePatternIds };
+
+            // When changing pattern, load that pattern's groove state into the live state
+            const newActivePattern = state.patterns.find(p => p.id === patternId);
+
+            return {
+                ...state,
+                activePatternIds: newActivePatternIds,
+                activeGrooveIds: newActivePattern?.grooveIds || state.activeGrooveIds,
+                grooveDepths: newActivePattern?.grooveDepths || state.grooveDepths,
+            };
         }
         case ActionType.UPDATE_PATTERN_PARAMS: {
             const { patternId, params } = action.payload;
@@ -462,6 +565,17 @@ const appReducer = (state: AppState, action: Action): AppState => {
             const newPatterns = state.patterns.map(p => {
                 return p.id === destinationPatternId ? newPattern : p;
             });
+
+            // If pasting into the currently active bank, also load the pasted pattern's groove state
+            const { activeSampleBank, activePatternIds } = state;
+            if (destinationPatternId === activePatternIds[activeSampleBank]) {
+                 return { 
+                    ...state, 
+                    patterns: newPatterns,
+                    activeGrooveIds: newPattern.grooveIds,
+                    grooveDepths: newPattern.grooveDepths,
+                };
+            }
  
             return { ...state, patterns: newPatterns };
         }

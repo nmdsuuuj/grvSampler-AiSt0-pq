@@ -180,7 +180,6 @@ const TemplateModal: React.FC<{
                         <div key={category}>
                             <h4 className="font-semibold text-slate-600 border-b mb-1">{category}</h4>
                             <div className="grid grid-cols-2 gap-1">
-                                {/* FIX: Add type assertion to fix `Property 'map' does not exist on type 'unknown'` error. */}
                                 {(templates as Template[]).map(tpl => (
                                     <button
                                         key={tpl.name}
@@ -298,14 +297,25 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
 
     const handleApplyTemplate = (template: Template) => {
         if (!activePattern) return;
-        dispatch({
-            type: ActionType.APPLY_SEQUENCE_TEMPLATE,
-            payload: {
-                patternId: activePattern.id,
-                sampleId: activeSampleId,
-                steps: template.steps,
-            }
-        });
+    
+        if (template.sequences) { // This is a multi-track drum template
+            dispatch({
+                type: ActionType.APPLY_BANK_A_DRUM_TEMPLATE,
+                payload: {
+                    patternId: activePattern.id,
+                    sequences: template.sequences,
+                }
+            });
+        } else if (template.steps) { // This is a single-track template
+            dispatch({
+                type: ActionType.APPLY_SEQUENCE_TEMPLATE,
+                payload: {
+                    patternId: activePattern.id,
+                    sampleId: activeSampleId,
+                    steps: template.steps,
+                }
+            });
+        }
         setIsTemplateModalOpen(false);
     };
 

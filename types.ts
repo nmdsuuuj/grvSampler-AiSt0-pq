@@ -38,6 +38,9 @@ export interface Pattern {
     loopCountB: number;
     playbackKey: number; // 0-11 for C-B, for non-destructive playback re-pitching
     playbackScale: string; // Name of the scale for non-destructive playback re-pitching
+    // Each pattern now stores its own groove settings for all 4 banks
+    grooveIds: number[]; 
+    grooveDepths: number[];
 }
 
 export interface MasterCompressorParams {
@@ -70,9 +73,9 @@ export interface AppState {
     currentSteps: number[];
     activeSampleId: number;
     activeSampleBank: number;
-    activeGrooveId: number;
-    activeGrooveBank: number;
-    grooveDepth: number;
+    // "Live" groove settings, loaded from the active pattern
+    activeGrooveIds: number[]; 
+    grooveDepths: number[];
     activeKey: number; // 0-11 for C-B
     activeScale: string; // Name of the scale
     keyboardOctave: number; // For PC keyboard note input
@@ -106,7 +109,6 @@ export enum ActionType {
     SET_ACTIVE_SAMPLE,
     SET_ACTIVE_SAMPLE_BANK,
     SET_ACTIVE_GROOVE,
-    SET_ACTIVE_GROOVE_BANK,
     SET_GROOVE_DEPTH,
     UPDATE_SAMPLE_PARAM,
     UPDATE_SAMPLE_NAME,
@@ -141,6 +143,7 @@ export enum ActionType {
     FILL_SEQUENCE,
     RANDOMIZE_PITCH,
     APPLY_SEQUENCE_TEMPLATE,
+    APPLY_BANK_A_DRUM_TEMPLATE,
     COPY_PATTERN,
     PASTE_PATTERN,
     SET_KEYBOARD_OCTAVE,
@@ -154,9 +157,8 @@ export type Action =
     | { type: ActionType.SET_CURRENT_STEP; payload: { bankIndex: number; step: number } }
     | { type: ActionType.SET_ACTIVE_SAMPLE; payload: number }
     | { type: ActionType.SET_ACTIVE_SAMPLE_BANK; payload: number }
-    | { type: ActionType.SET_ACTIVE_GROOVE; payload: number }
-    | { type: ActionType.SET_ACTIVE_GROOVE_BANK; payload: number }
-    | { type: ActionType.SET_GROOVE_DEPTH; payload: number }
+    | { type: ActionType.SET_ACTIVE_GROOVE; payload: { bankIndex: number; grooveId: number } }
+    | { type: ActionType.SET_GROOVE_DEPTH; payload: { bankIndex: number; value: number } }
     | { type: ActionType.UPDATE_SAMPLE_PARAM; payload: { sampleId: number; param: 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq'; value: number } }
     | { type: ActionType.UPDATE_SAMPLE_NAME; payload: { sampleId: number; name: string } }
     | { type: ActionType.SET_SAMPLES; payload: Sample[] }
@@ -190,6 +192,7 @@ export type Action =
     | { type: ActionType.FILL_SEQUENCE, payload: { patternId: number; sampleId: number } }
     | { type: ActionType.RANDOMIZE_PITCH, payload: { patternId: number; sampleId: number; key: number; scale: string } }
     | { type: ActionType.APPLY_SEQUENCE_TEMPLATE, payload: { patternId: number; sampleId: number; steps: boolean[] } }
+    | { type: ActionType.APPLY_BANK_A_DRUM_TEMPLATE, payload: { patternId: number; sequences: { [key: number]: boolean[] } } }
     | { type: ActionType.COPY_PATTERN, payload: { patternId: number } }
     | { type: ActionType.PASTE_PATTERN, payload: { patternId: number } }
     | { type: ActionType.SET_KEYBOARD_OCTAVE, payload: number }

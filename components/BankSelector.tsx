@@ -3,7 +3,7 @@ import React, { useContext } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType } from '../types';
 
-type BankType = 'sample' | 'groove';
+type BankType = 'sample';
 
 interface BankSelectorProps {
     type: BankType;
@@ -20,17 +20,11 @@ const BankSelector: React.FC<BankSelectorProps> = ({ type }) => {
             activeBank = state.activeSampleBank;
             actionType = ActionType.SET_ACTIVE_SAMPLE_BANK;
             break;
-        case 'groove':
-            activeBank = state.activeGrooveBank;
-            actionType = ActionType.SET_ACTIVE_GROOVE_BANK;
-            break;
     }
 
     const inactiveClasses = "bg-emerald-200 text-emerald-800";
-    let activeClasses = "bg-pink-400 text-white"; // Default for groove/pattern
-    if (type === 'sample') {
-        activeClasses = "bg-sky-400 text-white";
-    }
+    let activeClasses = "bg-sky-400 text-white";
+
 
     return (
         <div className="flex justify-center space-x-1">

@@ -101,7 +101,8 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
         });
 
         const scheduler = () => {
-            const { patterns, activePatternIds, grooveDepth, activeGrooveId, bpm, activeSampleBank, samples } = sequencerStateRef.current;
+            // Use the ref to get the most up-to-date state inside the interval.
+            const { patterns, activePatternIds, grooveDepths, activeGrooveIds, bpm, activeSampleBank, samples } = sequencerStateRef.current;
             if(!audioContext) return;
 
             while (true) {
@@ -156,7 +157,12 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
                         
                         const stepResolution = isPartA ? pattern.stepResolutionA : pattern.stepResolutionB;
                         const stepDurationForGroove = 60.0 / bpm / (stepResolution / 4);
-                        const groovePattern = GROOVE_PATTERNS[activeGrooveId];
+                        
+                        // Use the "live" global groove state, which is loaded from the pattern by the reducer.
+                        const grooveId = activeGrooveIds[nextTrackIndex];
+                        const grooveDepth = grooveDepths[nextTrackIndex];
+
+                        const groovePattern = GROOVE_PATTERNS[grooveId];
                         const grooveOffsetIndex = displayStep % STEPS_PER_PART;
                         const offsetFraction = groovePattern.offsets[grooveOffsetIndex] || 0;
                         const timeShift = stepDurationForGroove * offsetFraction * grooveDepth;
