@@ -2,6 +2,69 @@
 
 This document tracks the major changes, feature implementations, and requirement adjustments throughout the development of the Groove Sampler application.
 
+## Version 0.6.1 - Project & Kit Management Improvements
+
+This update focuses on improving the project and kit management system for better reliability and usability, especially on smartphones.
+
+### Implemented Features
+
+- **MIDI Mapping Template Persistence**:
+  - Fixed: MIDI mappings, templates, and template switch mappings are now explicitly saved with projects
+  - Ensures MIDI configurations are preserved when loading projects
+  - Backward compatibility: Old projects without MIDI data will load with empty MIDI state
+
+- **Comprehensive Error Handling**:
+  - Added try-catch blocks to all database operations
+  - Specific error messages for storage quota exceeded (QuotaExceededError)
+  - User-friendly error messages in Japanese
+  - Proper error logging for debugging
+
+- **Export/Import Functionality**:
+  - **Project Export**: Export projects as JSON files for backup and sharing
+  - **Kit Export**: Export sample kits as JSON files
+  - **Project Import**: Import projects from JSON files (creates new project with "(インポート)" suffix)
+  - **Kit Import**: Import kits from JSON files
+  - File validation to ensure imported files are valid
+  - Works on smartphones using Blob API and download links
+
+- **Storage Usage Display**:
+  - Real-time storage usage monitoring using `navigator.storage.estimate()`
+  - Visual indicators:
+    - Green: Normal usage (< 60%)
+    - Yellow: Warning (60-80%)
+    - Red: Critical (> 80%)
+  - Storage usage displayed in human-readable format (B, KB, MB, GB)
+  - Warning messages when storage is getting full
+
+- **Rename Functionality**:
+  - **Project Rename**: Inline editing with Enter/Escape key support
+  - **Kit Rename**: Inline editing with Enter/Escape key support
+  - Visual feedback during editing
+  - Error handling for rename operations
+
+- **UI Improvements**:
+  - Better button layout with tooltips
+  - Improved list display with truncation for long names
+  - Japanese date formatting
+  - Input field reset after save operations
+  - Increased list max-height for better visibility
+
+### Technical Improvements
+
+- **Error Handling**:
+  - All async operations wrapped in try-catch blocks
+  - Specific error types handled (QuotaExceededError)
+  - Console error logging for debugging
+  - User-friendly error messages
+
+- **Data Validation**:
+  - Import functions validate file structure before importing
+  - Prevents importing invalid or corrupted files
+
+- **Backward Compatibility**:
+  - Old projects without MIDI state will load with default empty MIDI state
+  - Graceful handling of missing fields
+
 ## Known Issues
 
 - **Pattern Copy/Paste**: The functionality to copy and paste a pattern between different banks (e.g., from Bank A to Bank B) is currently unreliable. While pattern parameters like length and division may be copied, the core step sequence data (note triggers, pitch, velocity) is often lost in the process. This is a high-priority bug that will be addressed in a future refactoring of the state management for patterns.
