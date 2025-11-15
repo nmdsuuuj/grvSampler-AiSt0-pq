@@ -11,6 +11,7 @@ An advanced sampler and sequencer for mobile browsers, featuring a powerful groo
 -   **Comprehensive PC Keyboard Control**: Control the entire application with your computer keyboard. Play pads, perform melodies with a scale-aware keyboard, change octaves, keys, and scales, and access UI functions on the fly.
 -   **Sampling & Drum Kits**: Record your own sounds directly through the microphone, or load pre-made classic drum machine kits.
 -   **Channel Mixer & Master FX**: Mix your four banks with dedicated volume faders, pan controls, and Mute/Solo buttons. A master compressor and safety clipper are included on the master channel to add punch and prevent clipping.
+-   **MIDI Control & Templates**: Comprehensive MIDI Learn system with multi-parameter mapping, bank-wide assignment mode, and template management for live performance. Assign MIDI CCs to any parameter, save mappings as templates, and switch between templates instantly during performance.
 -   **Project Saving**: Save and load your entire projects, including all samples, patterns, and settings.
 
 ## Current Status
