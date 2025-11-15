@@ -11,6 +11,7 @@ import SeqView from './components/views/SeqView';
 import GrooveView from './components/views/GrooveView';
 import MixerView from './components/views/MixerView';
 import ProjectView from './components/views/ProjectView';
+import MidiTemplateManager from './components/MidiTemplateManager';
 
 import { useAudioEngine } from './hooks/useAudioEngine';
 import { useSequencer } from './hooks/useSequencer';
@@ -77,11 +78,8 @@ const App: React.FC = () => {
     // Normalize MIDI value (0-127) to 0-1
     const normalizedValue = value / 127;
 
-    // If in MIDI learn mode, create a mapping
-    if (appState.midiLearnMode) {
-      const paramId = appState.midiLearnMode;
-      
-      // Determine min/max based on parameter type
+    // Helper function to get min/max for a parameter
+    const getParamMinMax = (paramId: string): { min: number; max: number } => {
       let min = 0;
       let max = 1;
       
@@ -132,61 +130,82 @@ const App: React.FC = () => {
             break;
         }
       }
+      return { min, max };
+    };
 
-      const mapping: MidiMapping = {
-        cc,
-        paramId,
-        min,
-        max,
-      };
+    // If in MIDI learn mode, create a mapping
+    if (appState.midiLearnMode) {
+      const paramId = appState.midiLearnMode;
+      const { min, max } = getParamMinMax(paramId);
       
-      appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+      // Check if this CC already has a mapping
+      const existingMapping = appState.midiMappings.find(m => m.cc === cc);
+      
+      if (existingMapping) {
+        // Add to existing CC mapping
+        appDispatch({ 
+          type: ActionType.ADD_MIDI_MAPPING_TO_CC, 
+          payload: { cc, paramId } 
+        });
+      } else {
+        // Create new mapping
+        const mapping: MidiMapping = {
+          cc,
+          paramIds: [paramId],
+          min,
+          max,
+        };
+        appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+      }
       return;
     }
 
     // Otherwise, apply mappings if they exist
     const mapping = appState.midiMappings.find(m => m.cc === cc);
     if (mapping) {
-      // Map normalized value (0-1) to parameter range
-      const paramValue = mapping.min + (normalizedValue * (mapping.max - mapping.min));
-      
-      if (mapping.paramId.startsWith('sample.')) {
-        const [, sampleIdStr, param] = mapping.paramId.split('.');
-        const sampleId = parseInt(sampleIdStr, 10);
-        const paramName = param as 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+      // Apply to all parameters mapped to this CC
+      mapping.paramIds.forEach(paramId => {
+        const { min, max } = getParamMinMax(paramId);
+        const paramValue = min + (normalizedValue * (max - min));
         
-        // Handle log scale for frequencies
-        if (paramName === 'lpFreq' || paramName === 'hpFreq') {
-          const MIN_FREQ = 20, MAX_FREQ = 20000;
-          const linearValue = normalizedValue;
-          const logValue = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, linearValue);
+        if (paramId.startsWith('sample.')) {
+          const [, sampleIdStr, param] = paramId.split('.');
+          const sampleId = parseInt(sampleIdStr, 10);
+          const paramName = param as 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+          
+          // Handle log scale for frequencies
+          if (paramName === 'lpFreq' || paramName === 'hpFreq') {
+            const MIN_FREQ = 20, MAX_FREQ = 20000;
+            const linearValue = normalizedValue;
+            const logValue = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, linearValue);
+            appDispatch({
+              type: ActionType.UPDATE_SAMPLE_PARAM,
+              payload: { sampleId, param: paramName, value: logValue },
+            });
+          } else {
+            appDispatch({
+              type: ActionType.UPDATE_SAMPLE_PARAM,
+              payload: { sampleId, param: paramName, value: paramValue },
+            });
+          }
+        } else if (paramId.startsWith('bank.')) {
+          const [, bankIdStr, param] = paramId.split('.');
+          const bankIndex = parseInt(bankIdStr, 10);
+          if (param === 'volume') {
+            appDispatch({ type: ActionType.SET_BANK_VOLUME, payload: { bankIndex, volume: paramValue } });
+          } else if (param === 'pan') {
+            appDispatch({ type: ActionType.SET_BANK_PAN, payload: { bankIndex, pan: paramValue } });
+          }
+        } else if (paramId === 'master.volume') {
+          appDispatch({ type: ActionType.SET_MASTER_VOLUME, payload: paramValue });
+        } else if (paramId.startsWith('compressor.')) {
+          const param = paramId.split('.')[1] as keyof typeof appState.masterCompressorParams;
           appDispatch({
-            type: ActionType.UPDATE_SAMPLE_PARAM,
-            payload: { sampleId, param: paramName, value: logValue },
-          });
-        } else {
-          appDispatch({
-            type: ActionType.UPDATE_SAMPLE_PARAM,
-            payload: { sampleId, param: paramName, value: paramValue },
+            type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM,
+            payload: { param, value: paramValue },
           });
         }
-      } else if (mapping.paramId.startsWith('bank.')) {
-        const [, bankIdStr, param] = mapping.paramId.split('.');
-        const bankIndex = parseInt(bankIdStr, 10);
-        if (param === 'volume') {
-          appDispatch({ type: ActionType.SET_BANK_VOLUME, payload: { bankIndex, volume: paramValue } });
-        } else if (param === 'pan') {
-          appDispatch({ type: ActionType.SET_BANK_PAN, payload: { bankIndex, pan: paramValue } });
-        }
-      } else if (mapping.paramId === 'master.volume') {
-        appDispatch({ type: ActionType.SET_MASTER_VOLUME, payload: paramValue });
-      } else if (mapping.paramId.startsWith('compressor.')) {
-        const param = mapping.paramId.split('.')[1] as keyof typeof appState.masterCompressorParams;
-        appDispatch({
-          type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM,
-          payload: { param, value: paramValue },
-        });
-      }
+      });
     }
   }, [dispatch]);
 
@@ -409,12 +428,17 @@ const App: React.FC = () => {
   
   return (
     <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto relative">
+      {/* MIDI Template Manager */}
+      <MidiTemplateManager />
+      
       {/* Header / Transport */}
       <header className="flex-shrink-0 p-1 bg-emerald-100/50">
-        <Transport 
-          startMasterRecording={startMasterRecording} 
-          stopMasterRecording={stopMasterRecording}
-        />
+        <div className="flex justify-between items-center">
+          <Transport 
+            startMasterRecording={startMasterRecording} 
+            stopMasterRecording={stopMasterRecording}
+          />
+        </div>
       </header>
 
       {/* Main Content */}

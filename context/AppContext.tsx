@@ -81,6 +81,7 @@ const initialState: AppState = {
     // MIDI Learn state
     midiLearnMode: null,
     midiMappings: [],
+    midiMappingTemplates: [],
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -613,17 +614,79 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case ActionType.STOP_MIDI_LEARN:
             return { ...state, midiLearnMode: null };
         case ActionType.ADD_MIDI_MAPPING: {
-            // Remove any existing mapping for this CC or paramId
-            const newMappings = state.midiMappings.filter(
-                m => m.cc !== action.payload.cc && m.paramId !== action.payload.paramId
-            );
-            newMappings.push(action.payload);
-            return { ...state, midiMappings: newMappings, midiLearnMode: null };
+            // Remove any existing mapping for this CC or paramIds
+            const newMappings = state.midiMappings.filter(m => m.cc !== action.payload.cc);
+            // Also remove any mappings that contain the same paramIds
+            const paramIdsToAdd = action.payload.paramIds;
+            const cleanedMappings = newMappings.map(m => ({
+                ...m,
+                paramIds: m.paramIds.filter(id => !paramIdsToAdd.includes(id)),
+            })).filter(m => m.paramIds.length > 0);
+            cleanedMappings.push(action.payload);
+            return { ...state, midiMappings: cleanedMappings, midiLearnMode: null };
+        }
+        case ActionType.ADD_MIDI_MAPPING_TO_CC: {
+            const { cc, paramId } = action.payload;
+            const existingMapping = state.midiMappings.find(m => m.cc === cc);
+            if (existingMapping) {
+                // Add paramId to existing mapping if not already present
+                if (!existingMapping.paramIds.includes(paramId)) {
+                    const newMappings = state.midiMappings.map(m =>
+                        m.cc === cc
+                            ? { ...m, paramIds: [...m.paramIds, paramId] }
+                            : m
+                    );
+                    // Remove paramId from other mappings
+                    const cleanedMappings = newMappings.map(m =>
+                        m.cc !== cc
+                            ? { ...m, paramIds: m.paramIds.filter(id => id !== paramId) }
+                            : m
+                    ).filter(m => m.paramIds.length > 0);
+                    return { ...state, midiMappings: cleanedMappings, midiLearnMode: null };
+                }
+            }
+            return state;
         }
         case ActionType.REMOVE_MIDI_MAPPING:
             return {
                 ...state,
                 midiMappings: state.midiMappings.filter(m => m.cc !== action.payload.cc),
+            };
+        case ActionType.REMOVE_PARAM_FROM_MIDI_MAPPING: {
+            const { cc, paramId } = action.payload;
+            const newMappings = state.midiMappings.map(m =>
+                m.cc === cc
+                    ? { ...m, paramIds: m.paramIds.filter(id => id !== paramId) }
+                    : m
+            ).filter(m => m.paramIds.length > 0);
+            return { ...state, midiMappings: newMappings };
+        }
+        case ActionType.SAVE_MIDI_MAPPING_TEMPLATE: {
+            const template = {
+                id: `template_${Date.now()}`,
+                name: action.payload.name,
+                mappings: state.midiMappings,
+                createdAt: Date.now(),
+            };
+            return {
+                ...state,
+                midiMappingTemplates: [...state.midiMappingTemplates, template],
+            };
+        }
+        case ActionType.LOAD_MIDI_MAPPING_TEMPLATE: {
+            const template = state.midiMappingTemplates.find(t => t.id === action.payload.templateId);
+            if (template) {
+                return {
+                    ...state,
+                    midiMappings: template.mappings,
+                };
+            }
+            return state;
+        }
+        case ActionType.DELETE_MIDI_MAPPING_TEMPLATE:
+            return {
+                ...state,
+                midiMappingTemplates: state.midiMappingTemplates.filter(t => t.id !== action.payload.templateId),
             };
         default:
             return state;

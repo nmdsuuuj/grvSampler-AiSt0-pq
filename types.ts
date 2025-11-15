@@ -77,9 +77,17 @@ export type MidiParamId =
 
 export interface MidiMapping {
     cc: number; // MIDI CC number (0-127)
-    paramId: MidiParamId;
+    paramIds: MidiParamId[]; // Multiple parameters can be mapped to one CC
     min: number; // Parameter min value
     max: number; // Parameter max value
+}
+
+// Template for saving/loading MIDI mappings
+export interface MidiMappingTemplate {
+    id: string;
+    name: string;
+    mappings: MidiMapping[];
+    createdAt: number;
 }
 
 export interface AppState {
@@ -122,6 +130,7 @@ export interface AppState {
     // MIDI Learn state
     midiLearnMode: MidiParamId | null; // null = not learning, otherwise the param ID being learned
     midiMappings: MidiMapping[]; // Array of MIDI CC to parameter mappings
+    midiMappingTemplates: MidiMappingTemplate[]; // Saved MIDI mapping templates
 }
 
 export enum ActionType {
@@ -174,7 +183,12 @@ export enum ActionType {
     START_MIDI_LEARN,
     STOP_MIDI_LEARN,
     ADD_MIDI_MAPPING,
+    ADD_MIDI_MAPPING_TO_CC, // Add parameter to existing CC mapping
     REMOVE_MIDI_MAPPING,
+    REMOVE_PARAM_FROM_MIDI_MAPPING,
+    SAVE_MIDI_MAPPING_TEMPLATE,
+    LOAD_MIDI_MAPPING_TEMPLATE,
+    DELETE_MIDI_MAPPING_TEMPLATE,
 }
 
 export type Action =
@@ -227,4 +241,9 @@ export type Action =
     | { type: ActionType.START_MIDI_LEARN, payload: MidiParamId }
     | { type: ActionType.STOP_MIDI_LEARN }
     | { type: ActionType.ADD_MIDI_MAPPING, payload: MidiMapping }
-    | { type: ActionType.REMOVE_MIDI_MAPPING, payload: { cc: number } };
+    | { type: ActionType.ADD_MIDI_MAPPING_TO_CC, payload: { cc: number; paramId: MidiParamId } }
+    | { type: ActionType.REMOVE_MIDI_MAPPING, payload: { cc: number } }
+    | { type: ActionType.REMOVE_PARAM_FROM_MIDI_MAPPING, payload: { cc: number; paramId: MidiParamId } }
+    | { type: ActionType.SAVE_MIDI_MAPPING_TEMPLATE, payload: { name: string } }
+    | { type: ActionType.LOAD_MIDI_MAPPING_TEMPLATE, payload: { templateId: string } }
+    | { type: ActionType.DELETE_MIDI_MAPPING_TEMPLATE, payload: { templateId: string } };
