@@ -313,6 +313,8 @@ export const useAudioEngine = () => {
             if (activeSampleSources.size === 0) {
                 activeSourcesRef.current.delete(sampleId);
             }
+            // Clean up source node to free memory
+            source.disconnect();
         };
 
     }, []);

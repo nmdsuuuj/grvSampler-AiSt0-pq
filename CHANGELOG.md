@@ -2,10 +2,190 @@
 
 This document tracks the major changes, feature implementations, and requirement adjustments throughout the development of the Groove Sampler application.
 
+## Version 0.6.2 - Advanced Management Features
+
+This update adds advanced management features for better data organization and memory optimization, especially important for smartphone usage.
+
+### Implemented Features
+
+- **Bulk Delete Functionality**:
+  - **Multi-Selection Mode**: Toggle "一括削除" (Bulk Delete) mode to select multiple projects/kits
+  - **Checkbox Selection**: Click checkboxes to select items for deletion
+  - **Visual Feedback**: Selected items are highlighted in red
+  - **Bulk Delete Button**: Delete all selected items at once
+  - Works for both projects and kits
+
+- **Date Range Delete**:
+  - **Date Range Selection**: Delete projects/kits older than specified number of days
+  - **Configurable Days**: Input field to set the number of days (default: 30)
+  - **Separate Actions**: Delete old projects and kits independently
+  - **Confirmation**: Shows count of items to be deleted before deletion
+
+- **Storage Cleanup Tools**:
+  - **Cleanup Analysis**: Analyzes storage for unused samples and duplicate projects/kits
+  - **Duplicate Detection**: Identifies projects/kits with the same name
+  - **Duplicate Removal**: Keeps the oldest item in each duplicate group, deletes others
+  - **Visual Feedback**: Shows counts of unused samples, duplicate projects, and duplicate kits
+  - **Re-analysis**: Button to refresh cleanup analysis
+
+- **Memory Management Optimizations**:
+  - **Batch Loading**: Projects and kits are loaded in batches of 8 samples to avoid memory spikes
+  - **Memory Cleanup**: Clears current samples from memory before loading new ones
+  - **Garbage Collection Hint**: Attempts to trigger garbage collection (if available)
+  - **Source Node Cleanup**: AudioBufferSourceNode cleanup after playback ends
+  - **Error Handling**: Specific error messages for memory-related issues
+
+### Technical Improvements
+
+- **Memory Optimization**:
+  - Batch processing reduces peak memory usage during project/kit loading
+  - Explicit cleanup of audio nodes to prevent memory leaks
+  - Small delays between batches to allow browser processing
+
+- **UI Enhancements**:
+  - Bulk delete mode with visual selection indicators
+  - Date range delete interface with number input
+  - Storage cleanup panel integrated into storage usage display
+  - Better error messages for memory-related issues
+
+## Version 0.6.1 - Project & Kit Management Improvements
+
+This update focuses on improving the project and kit management system for better reliability and usability, especially on smartphones.
+
+### Implemented Features
+
+- **MIDI Mapping Template Persistence**:
+  - Fixed: MIDI mappings, templates, and template switch mappings are now explicitly saved with projects
+  - Ensures MIDI configurations are preserved when loading projects
+  - Backward compatibility: Old projects without MIDI data will load with empty MIDI state
+
+- **Comprehensive Error Handling**:
+  - Added try-catch blocks to all database operations
+  - Specific error messages for storage quota exceeded (QuotaExceededError)
+  - User-friendly error messages in Japanese
+  - Proper error logging for debugging
+
+- **Export/Import Functionality**:
+  - **Project Export**: Export projects as JSON files for backup and sharing
+  - **Kit Export**: Export sample kits as JSON files
+  - **Project Import**: Import projects from JSON files (creates new project with "(インポート)" suffix)
+  - **Kit Import**: Import kits from JSON files
+  - File validation to ensure imported files are valid
+  - Works on smartphones using Blob API and download links
+
+- **Storage Usage Display**:
+  - Real-time storage usage monitoring using `navigator.storage.estimate()`
+  - Visual indicators:
+    - Green: Normal usage (< 60%)
+    - Yellow: Warning (60-80%)
+    - Red: Critical (> 80%)
+  - Storage usage displayed in human-readable format (B, KB, MB, GB)
+  - Warning messages when storage is getting full
+
+- **Rename Functionality**:
+  - **Project Rename**: Inline editing with Enter/Escape key support
+  - **Kit Rename**: Inline editing with Enter/Escape key support
+  - Visual feedback during editing
+  - Error handling for rename operations
+
+- **UI Improvements**:
+  - Better button layout with tooltips
+  - Improved list display with truncation for long names
+  - Japanese date formatting
+  - Input field reset after save operations
+  - Increased list max-height for better visibility
+
+### Technical Improvements
+
+- **Error Handling**:
+  - All async operations wrapped in try-catch blocks
+  - Specific error types handled (QuotaExceededError)
+  - Console error logging for debugging
+  - User-friendly error messages
+
+- **Data Validation**:
+  - Import functions validate file structure before importing
+  - Prevents importing invalid or corrupted files
+
+- **Backward Compatibility**:
+  - Old projects without MIDI state will load with default empty MIDI state
+  - Graceful handling of missing fields
+
 ## Known Issues
 
-- **MIDI Learn Feature**: The MIDI Learn functionality is currently non-functional due to persistent issues with state management and component re-rendering, preventing reliable MIDI mapping. The feature has been removed from the current build and will be re-evaluated and re-engineered in a future update.
 - **Pattern Copy/Paste**: The functionality to copy and paste a pattern between different banks (e.g., from Bank A to Bank B) is currently unreliable. While pattern parameters like length and division may be copied, the core step sequence data (note triggers, pitch, velocity) is often lost in the process. This is a high-priority bug that will be addressed in a future refactoring of the state management for patterns.
+
+## Version 0.6.0 - MIDI Control & Template System
+
+This major update introduces a comprehensive MIDI Learn system with advanced mapping capabilities, template management, and live performance features.
+
+### Implemented Features
+
+- **MIDI Learn Functionality**:
+  - **Complete Re-implementation**: Fully rebuilt the MIDI Learn system with proper state management and reliable MIDI CC mapping.
+  - **Multi-Parameter Mapping**: A single MIDI CC can now control multiple parameters simultaneously. For example, one CC can control all volume faders in a bank, or multiple different parameters across different samples.
+  - **Visual Feedback**: Fader components now display MIDI mapping status with color-coded "M" buttons:
+    - Gray: Not mapped
+    - Blue: Single parameter mapped
+    - Purple: Multiple parameters mapped to the same CC
+    - Yellow (pulsing): Currently in MIDI Learn mode
+  - **Parameter Removal**: Individual parameters can be removed from a multi-parameter mapping without affecting other parameters on the same CC.
+
+- **BANK-Wide MIDI Assignment Mode**:
+  - **Toggle Mode**: Added a "BANK単位一括アサイン" (Bank-Wide Assignment) toggle in the MIDI Template Manager.
+  - **Automatic Multi-Pad Assignment**: When enabled, assigning a MIDI CC to any parameter on one pad automatically assigns the same CC to the same parameter on all 8 pads in that bank.
+  - **Use Case**: Dramatically speeds up MIDI setup for banks where all pads should respond to the same control (e.g., all volume faders, all filter frequencies).
+
+- **MIDI Mapping Templates**:
+  - **Template System**: Users can save their current MIDI mappings as named templates for quick recall.
+  - **Template Management UI**: New MIDI Template Manager component provides:
+    - Save current mappings with custom names
+    - Load saved templates
+    - Delete templates
+    - View mapping information (CC numbers and parameter counts)
+  - **Template Persistence**: Templates are saved in application state and persist across sessions (when project is saved).
+
+- **Live Template Switching**:
+  - **MIDI CC Assignment for Templates**: Each template can have a dedicated MIDI CC assigned for instant switching during live performance.
+  - **Separate Management**: Template switch CC mappings are managed separately from parameter mappings, preventing conflicts.
+  - **Instant Switching**: When a template switch CC is triggered (value > 0.5), the corresponding template is loaded immediately, allowing seamless transitions between different MIDI control setups during performance.
+  - **Visual Indicators**: Templates with assigned switch CCs are displayed in purple, showing the CC number.
+
+- **Supported Parameters**:
+  - Sample parameters: Volume, Pitch, Start, Decay, Low-Pass Frequency, High-Pass Frequency
+  - Bank parameters: Volume, Pan
+  - Master parameters: Master Volume
+  - Compressor parameters: Threshold, Ratio, Knee, Attack, Release
+
+### Technical Implementation
+
+- **State Management**: 
+  - Extended `AppState` with `midiMappings`, `midiMappingTemplates`, `bankWideMidiLearn`, and `templateSwitchMappings`.
+  - Implemented new action types for MIDI mapping operations.
+- **MIDI Message Processing**:
+  - Template switch CCs are checked first (before learn mode and parameter control).
+  - MIDI Learn mode supports both single-parameter and bank-wide multi-parameter assignment.
+  - Parameter control applies to all parameters mapped to the same CC simultaneously.
+- **UI Components**:
+  - Enhanced `Fader` component with MIDI Learn buttons and status indicators.
+  - New `MidiTemplateManager` component for template management and bank-wide mode toggle.
+  - Integrated template manager into main App component.
+
+### Use Cases
+
+1. **Live Performance Setup**: 
+   - Create multiple templates for different songs or sections.
+   - Assign template switch CCs to physical buttons on MIDI controller.
+   - Switch between templates instantly during performance without touching the computer.
+
+2. **Efficient Bank Control**:
+   - Enable bank-wide mode.
+   - Assign one CC to control all volume faders in a bank simultaneously.
+   - Perfect for mixing or live performance where all pads in a bank need unified control.
+
+3. **Complex Multi-Parameter Control**:
+   - Map one CC to control multiple different parameters (e.g., CC1 controls Bank A volume, Sample 0 pitch, and Master volume simultaneously).
+   - Create rich, expressive control setups with limited physical controllers.
 
 ## Version 0.5.0 - The Microtonal & World Scale Update
 
