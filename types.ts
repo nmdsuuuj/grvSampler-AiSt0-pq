@@ -209,8 +209,8 @@ export type Action =
     | { type: ActionType.CLEAR_SEQUENCE, payload: { patternId: number; sampleId: number } }
     | { type: ActionType.FILL_SEQUENCE, payload: { patternId: number; sampleId: number } }
     | { type: ActionType.RANDOMIZE_PITCH, payload: { patternId: number; sampleId: number; key: number; scale: string } }
-    | { type: ActionType.APPLY_SEQUENCE_TEMPLATE, payload: { patternId: number; sampleId: number; steps: boolean[] } }
-    | { type: ActionType.APPLY_BANK_A_DRUM_TEMPLATE, payload: { patternId: number; sequences: { [key: number]: boolean[] } } }
+    | { type: ActionType.APPLY_SEQUENCE_TEMPLATE, payload: { patternId: number; sampleId: number; steps: boolean[]; grooveId?: number; grooveDepth?: number; } }
+    | { type: ActionType.APPLY_BANK_A_DRUM_TEMPLATE, payload: { patternId: number; sequences: { [key: number]: boolean[] }; grooveId?: number; grooveDepth?: number; } }
     | { type: ActionType.COPY_PATTERN, payload: { patternId: number } }
     | { type: ActionType.PASTE_PATTERN, payload: { patternId: number } }
     | { type: ActionType.COPY_LANE }

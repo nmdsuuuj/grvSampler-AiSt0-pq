@@ -202,76 +202,112 @@ const appReducer = (state: AppState, action: Action): AppState => {
             };
         }
         case ActionType.APPLY_SEQUENCE_TEMPLATE: {
-            const { patternId, sampleId, steps: templateSteps } = action.payload;
-
+            const { patternId, sampleId, steps: templateSteps, grooveId, grooveDepth } = action.payload;
+        
+            let finalState = { ...state };
+        
             const newPatterns = state.patterns.map(pattern => {
                 if (pattern.id !== patternId) {
                     return pattern;
                 }
-
+        
+                // Apply step sequence
                 const newSteps = pattern.steps.map((lane, laneIndex) => {
                     if (laneIndex !== sampleId) {
                         return lane;
                     }
-
                     return lane.map((originalStep, stepIndex) => ({
                         ...originalStep,
                         active: templateSteps[stepIndex] ?? originalStep.active,
                     }));
                 });
-
+        
+                // Apply groove settings if provided
+                const sampleBank = Math.floor(sampleId / PADS_PER_BANK);
+                let newGrooveIds = [...pattern.grooveIds];
+                let newGrooveDepths = [...pattern.grooveDepths];
+        
+                if (grooveId !== undefined) {
+                    newGrooveIds[sampleBank] = grooveId;
+                }
+                if (grooveDepth !== undefined) {
+                    newGrooveDepths[sampleBank] = grooveDepth;
+                }
+        
                 return {
                     ...pattern,
                     steps: newSteps,
+                    grooveIds: newGrooveIds,
+                    grooveDepths: newGrooveDepths,
                 };
             });
-
-            return {
-                ...state,
-                patterns: newPatterns,
-            };
+        
+            finalState = { ...finalState, patterns: newPatterns };
+        
+            // If the modified pattern is active, update the live groove state
+            const modifiedBank = Math.floor(sampleId / PADS_PER_BANK);
+            if (patternId === state.activePatternIds[modifiedBank] && (grooveId !== undefined || grooveDepth !== undefined)) {
+                const newActiveGrooveIds = [...state.activeGrooveIds];
+                const newActiveGrooveDepths = [...state.grooveDepths];
+                if (grooveId !== undefined) newActiveGrooveIds[modifiedBank] = grooveId;
+                if (grooveDepth !== undefined) newActiveGrooveDepths[modifiedBank] = grooveDepth;
+                finalState = { ...finalState, activeGrooveIds: newActiveGrooveIds, grooveDepths: newActiveGrooveDepths };
+            }
+        
+            return finalState;
         }
         case ActionType.APPLY_BANK_A_DRUM_TEMPLATE: {
-            const { patternId, sequences } = action.payload;
+            const { patternId, sequences, grooveId, grooveDepth } = action.payload;
         
-            return {
-                ...state,
-                patterns: state.patterns.map(pattern => {
-                    if (pattern.id !== patternId) {
-                        return pattern;
-                    }
+            let finalState = { ...state };
         
-                    const newSteps = pattern.steps.map(lane => [...lane]);
-                    
-                    // Apply sequences only to Bank A's pads (sample IDs 0-7)
-                    for (const padIndexStr in sequences) {
-                        const padIndex = parseInt(padIndexStr, 10);
-                        if (padIndex >= 0 && padIndex < PADS_PER_BANK) {
-                            const sampleId = padIndex; // In Bank A, sampleId is the same as padIndex
-                            const templateSteps = sequences[padIndex];
-                            if (templateSteps) {
-                                 newSteps[sampleId] = newSteps[sampleId].map((originalStep, stepIndex) => ({
-                                    ...originalStep,
-                                    active: templateSteps[stepIndex] ?? originalStep.active,
-                                }));
-                            }
+            const newPatterns = state.patterns.map(pattern => {
+                if (pattern.id !== patternId) {
+                    return pattern;
+                }
+        
+                // Apply step sequences to Bank A
+                const newSteps = pattern.steps.map(lane => [...lane]);
+                for (const padIndexStr in sequences) {
+                    const padIndex = parseInt(padIndexStr, 10);
+                    if (padIndex >= 0 && padIndex < PADS_PER_BANK) {
+                        const sampleId = padIndex;
+                        const templateSteps = sequences[padIndex];
+                        if (templateSteps) {
+                            newSteps[sampleId] = newSteps[sampleId].map((originalStep, stepIndex) => ({
+                                ...originalStep,
+                                active: templateSteps[stepIndex] ?? originalStep.active,
+                            }));
                         }
                     }
-
-                    // Also apply a default swing groove to Bank A
-                    const newGrooveIds = [...pattern.grooveIds];
-                    const newGrooveDepths = [...pattern.grooveDepths];
-                    newGrooveIds[0] = 1; // Swing 16S
-                    newGrooveDepths[0] = 0.3; // 30% depth
+                }
         
-                    return {
-                        ...pattern,
-                        steps: newSteps,
-                        grooveIds: newGrooveIds,
-                        grooveDepths: newGrooveDepths,
-                    };
-                }),
-            };
+                // Apply groove settings for Bank A if provided, otherwise use a default swing
+                const newGrooveIds = [...pattern.grooveIds];
+                const newGrooveDepths = [...pattern.grooveDepths];
+                newGrooveIds[0] = grooveId !== undefined ? grooveId : 1; // Default to Swing 16S
+                newGrooveDepths[0] = grooveDepth !== undefined ? grooveDepth : 0.3; // Default to 30%
+        
+                return {
+                    ...pattern,
+                    steps: newSteps,
+                    grooveIds: newGrooveIds,
+                    grooveDepths: newGrooveDepths,
+                };
+            });
+        
+            finalState = { ...finalState, patterns: newPatterns };
+        
+            // If the modified pattern is active in Bank A, update the live groove state
+            if (patternId === state.activePatternIds[0]) {
+                const newActiveGrooveIds = [...state.activeGrooveIds];
+                const newActiveGrooveDepths = [...state.grooveDepths];
+                newActiveGrooveIds[0] = grooveId !== undefined ? grooveId : 1;
+                newActiveGrooveDepths[0] = grooveDepth !== undefined ? grooveDepth : 0.3;
+                finalState = { ...finalState, activeGrooveIds: newActiveGrooveIds, grooveDepths: newActiveGrooveDepths };
+            }
+        
+            return finalState;
         }
         case ActionType.RANDOMIZE_SEQUENCE: {
             const { patternId, sampleId } = action.payload;

@@ -6,6 +6,9 @@ export interface Template {
     steps?: boolean[];
     // For multi-track drum templates (Bank A, pads 0-7)
     sequences?: { [key: number]: boolean[] };
+    // Optional groove settings to apply with the template
+    grooveId?: number;
+    grooveDepth?: number;
 }
 
 const T = true;
@@ -22,7 +25,9 @@ const TEMPLATES: Template[] = [
             1: [F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F], // Snare
             2: [F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F], // Closed Hat
             3: [F,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, F,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F], // Open Hat
-        }
+        },
+        grooveId: 1, // Swing 16S
+        grooveDepth: 0.1, // 10% depth
     },
     {
         name: 'Classic House',
@@ -32,7 +37,9 @@ const TEMPLATES: Template[] = [
             1: [F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,T, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F], // Snare/Clap
             2: [F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F, F,F,T,F], // Closed Hat
             3: [F,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, F,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F], // Open Hat
-        }
+        },
+        grooveId: 2, // Swing 16H
+        grooveDepth: 0.25,
     },
     {
         name: 'Classic Hip-Hop',
@@ -41,9 +48,68 @@ const TEMPLATES: Template[] = [
             0: [T,F,F,T, F,F,F,F, T,F,F,F, T,F,F,F, T,F,F,T, F,F,F,F, T,F,F,F, F,F,F,F], // Kick
             1: [F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F], // Snare
             2: [T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T], // Hi-Hat
-        }
+        },
+        grooveId: 5, // SP-1200
+        grooveDepth: 0.5,
     },
-    
+    {
+        name: 'Funky Drummer',
+        category: 'Drum Patterns (Bank A)',
+        sequences: {
+            0: [T,F,F,T,F,F,T,F, F,F,T,F,T,F,F,F, T,F,F,T,F,F,T,F, F,F,T,F,T,F,F,F], // Kick
+            1: [F,F,F,F,T,F,F,T, F,F,F,F,T,F,F,T, F,F,F,F,T,F,F,T, F,F,F,F,T,F,F,T], // Snare
+            2: [T,T,T,T,T,T,T,T, T,T,T,T,T,T,T,T, T,T,T,T,T,T,T,T, T,T,T,T,T,T,T,T], // Ghost Hats
+            3: [F,F,F,F,F,F,F,F, T,F,F,F,F,F,F,F, F,F,F,F,F,F,F,F, T,F,F,F,F,F,F,F], // Open Hat Accents
+        },
+        grooveId: 7, // Laid Back
+        grooveDepth: 0.6,
+    },
+    {
+        name: 'Hard Swing Techno',
+        category: 'Drum Patterns (Bank A)',
+        sequences: {
+            0: [T,F,F,F, T,F,F,F, T,F,F,F, T,F,F,F, T,F,F,F, T,F,F,F, T,F,F,F, T,F,F,F], // Kick
+            1: [F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F], // Snare
+            2: [F,F,F,T, F,F,F,T, F,F,F,T, F,F,F,T, F,F,F,T, F,F,F,T, F,F,F,T, F,F,F,T], // Hats
+            4: [F,F,T,F, F,F,F,F, F,F,T,F, F,F,F,F, F,F,T,F, F,F,F,F, F,F,T,F, F,F,F,F], // Perc
+        },
+        grooveId: 3, // Swing 16L
+        grooveDepth: 1.0,
+    },
+    {
+        name: 'Shuffle Beat',
+        category: 'Drum Patterns (Bank A)',
+        sequences: {
+            0: [T,F,F,T, T,F,F,F, T,F,F,T, T,F,F,F, T,F,F,T, T,F,F,F, T,F,F,T, T,F,F,F], // Kick
+            1: [F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F], // Snare
+            2: [T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F], // Shaker
+        },
+        grooveId: 21, // Shuffle
+        grooveDepth: 1.0
+    },
+    {
+        name: 'Gallop Rock',
+        category: 'Drum Patterns (Bank A)',
+        sequences: {
+            0: [T,F,T,T, T,F,T,T, T,F,T,T, T,F,T,T, T,F,T,T, T,F,T,T, T,F,T,T, T,F,T,T], // Kick
+            1: [F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F], // Snare
+            2: [T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F, T,F,T,F], // Hats
+        },
+        grooveId: 8, // Gallop A
+        grooveDepth: 0.8
+    },
+    {
+        name: 'Funky MPC',
+        category: 'Drum Patterns (Bank A)',
+        sequences: {
+            0: [T,F,F,T, F,T,F,F, T,F,F,F, F,T,F,F, T,F,F,T, F,T,F,F, T,F,F,F, F,T,F,T], // Kick
+            1: [F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F, F,F,F,F, T,F,F,F], // Snare
+            2: [T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T], // Hats
+        },
+        grooveId: 4, // MPC 62%
+        grooveDepth: 1.0
+    },
+
     // --- Drums (General) ---
     {
         name: 'Four On The Floor',

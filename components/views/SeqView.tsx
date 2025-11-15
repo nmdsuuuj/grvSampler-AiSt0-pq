@@ -323,6 +323,8 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                 payload: {
                     patternId: activePattern.id,
                     sequences: template.sequences,
+                    grooveId: template.grooveId,
+                    grooveDepth: template.grooveDepth,
                 }
             });
         } else if (template.steps) { // This is a single-track template
@@ -332,6 +334,8 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                     patternId: activePattern.id,
                     sampleId: activeSampleId,
                     steps: template.steps,
+                    grooveId: template.grooveId,
+                    grooveDepth: template.grooveDepth,
                 }
             });
         }
