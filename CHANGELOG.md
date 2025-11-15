@@ -4,6 +4,7 @@ This document tracks the major changes, feature implementations, and requirement
 
 ## Known Issues
 
+- **Preset Drum Kits (`Load Kit`)**: This feature has been removed due to persistent and critical errors with audio data decoding (`atob` and `Unable to decode audio data`). The feature will be re-evaluated for a future release with a more robust implementation.
 - **MIDI Learn Feature**: The MIDI Learn functionality is currently non-functional due to persistent issues with state management and component re-rendering, preventing reliable MIDI mapping. The feature has been removed from the current build and will be re-evaluated and re-engineered in a future update.
 - **Pattern Copy/Paste**: The functionality to copy and paste a pattern between different banks (e.g., from Bank A to Bank B) is currently unreliable. While pattern parameters like length and division may be copied, the core step sequence data (note triggers, pitch, velocity) is often lost in the process. This is a high-priority bug that will be addressed in a future refactoring of the state management for patterns.
 
