@@ -2,7 +2,7 @@
 
 import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { AppContext } from './context/AppContext';
-import { ActionType, PlaybackParams } from './types';
+import { Action, ActionType, PlaybackParams } from './types';
 
 import Transport from './components/Transport';
 import TabButton from './components/TabButton';
@@ -230,7 +230,23 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (activeView) {
       case 'SAMPLE':
-        return <SampleView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} loadSampleFromBlob={loadSampleFromBlob} />;
+        return <SampleView 
+            // Pass state as props
+            activeSampleId={state.activeSampleId}
+            samples={state.samples}
+            activeSampleBank={state.activeSampleBank}
+            isRecording={state.isRecording}
+            audioContext={state.audioContext}
+            isArmed={state.isArmed}
+            recordingThreshold={state.recordingThreshold}
+            sampleClipboard={state.sampleClipboard}
+            // Pass callbacks
+            playSample={playSample} 
+            startRecording={startRecording} 
+            stopRecording={stopRecording} 
+            loadSampleFromBlob={loadSampleFromBlob}
+            dispatch={dispatch}
+        />;
       case 'SEQ':
         return <SeqView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} />;
       case 'GROOVE':
@@ -240,15 +256,32 @@ const App: React.FC = () => {
       case 'PROJECT':
         return <ProjectView />;
       default:
-        return <SampleView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} loadSampleFromBlob={loadSampleFromBlob} />;
+        return <SampleView 
+            activeSampleId={state.activeSampleId}
+            samples={state.samples}
+            activeSampleBank={state.activeSampleBank}
+            isRecording={state.isRecording}
+            audioContext={state.audioContext}
+            isArmed={state.isArmed}
+            recordingThreshold={state.recordingThreshold}
+            sampleClipboard={state.sampleClipboard}
+            playSample={playSample} 
+            startRecording={startRecording} 
+            stopRecording={stopRecording} 
+            loadSampleFromBlob={loadSampleFromBlob}
+            dispatch={dispatch}
+        />;
     }
   };
-
+  
   return (
-    <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto">
+    <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto relative">
       {/* Header / Transport */}
       <header className="flex-shrink-0 p-1 bg-emerald-100/50">
-        <Transport startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />
+        <Transport 
+          startMasterRecording={startMasterRecording} 
+          stopMasterRecording={stopMasterRecording}
+        />
       </header>
 
       {/* Main Content */}

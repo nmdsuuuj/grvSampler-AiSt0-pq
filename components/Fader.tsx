@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 
 interface FaderProps {
@@ -16,7 +18,11 @@ interface FaderProps {
   hideValue?: boolean;
 }
 
-const Fader: React.FC<FaderProps> = ({ label, value, onChange, min, max, step, defaultValue, displayValue, displayPrecision = 2, isVertical = false, hideInfo = false, size = 'normal', hideValue = false }) => {
+const Fader: React.FC<FaderProps> = ({ 
+  label, value, onChange, min, max, step, defaultValue, 
+  displayValue, displayPrecision = 2, isVertical = false, 
+  hideInfo = false, size = 'normal', hideValue = false
+}) => {
   const [internalValue, setInternalValue] = useState(value);
   const frameId = useRef<number | null>(null);
   const tapTimeout = useRef<number | null>(null);
@@ -112,4 +118,4 @@ const Fader: React.FC<FaderProps> = ({ label, value, onChange, min, max, step, d
   );
 };
 
-export default Fader;
+export default React.memo(Fader);

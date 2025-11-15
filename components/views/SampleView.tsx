@@ -1,6 +1,7 @@
-import React, { useContext, useState, useRef } from 'react';
-import { AppContext } from '../../context/AppContext';
-import { ActionType, PlaybackParams } from '../../types';
+
+
+import React, { useState, useRef, useCallback } from 'react';
+import { Action, ActionType, PlaybackParams, Sample } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
 import { PADS_PER_BANK } from '../../constants';
@@ -11,6 +12,17 @@ interface SampleViewProps {
     startRecording: () => void;
     stopRecording: () => void;
     loadSampleFromBlob: (blob: Blob, sampleId: number, name?: string) => Promise<void>;
+    // State props
+    activeSampleId: number;
+    samples: Sample[];
+    activeSampleBank: number;
+    isRecording: boolean;
+    audioContext: AudioContext | null;
+    isArmed: boolean;
+    recordingThreshold: number;
+    sampleClipboard: Sample | null;
+    // Dispatch and callbacks
+    dispatch: React.Dispatch<Action>;
 }
 
 // Helper function to encode AudioBuffer to a WAV Blob
@@ -64,36 +76,38 @@ const encodeWav = (audioBuffer: AudioBuffer): Blob => {
 };
 
 
-const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, stopRecording, loadSampleFromBlob }) => {
-    const { state, dispatch } = useContext(AppContext);
-    const { activeSampleId, samples, activeSampleBank, isRecording, audioContext, isArmed, recordingThreshold, sampleClipboard } = state;
+const SampleView: React.FC<SampleViewProps> = ({ 
+    playSample, startRecording, stopRecording, loadSampleFromBlob,
+    activeSampleId, samples, activeSampleBank, isRecording, audioContext, isArmed, recordingThreshold, sampleClipboard,
+    dispatch
+}) => {
     const activeSample = samples[activeSampleId];
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isSamplingMode, setIsSamplingMode] = useState(true);
 
-    const handleParamChange = (param: 'pitch' | 'start' | 'volume' | 'decay' | 'lpFreq' | 'hpFreq', value: number) => {
+    const handleParamChange = useCallback((param: 'pitch' | 'start' | 'volume' | 'decay' | 'lpFreq' | 'hpFreq', value: number) => {
         dispatch({
             type: ActionType.UPDATE_SAMPLE_PARAM,
             payload: { sampleId: activeSampleId, param, value },
         });
-    };
+    }, [dispatch, activeSampleId]);
 
-    const handleSamplePadClick = (id: number) => {
+    const handleSamplePadClick = useCallback((id: number) => {
         dispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: id });
         if (samples[id]?.buffer) {
             audioContext?.resume().then(() => playSample(id, 0));
         }
-    };
+    }, [dispatch, samples, audioContext, playSample]);
 
-    const handleRecordClick = () => {
+    const handleRecordClick = useCallback(() => {
         if (isRecording || isArmed) {
             stopRecording();
         } else {
             startRecording();
         }
-    };
+    }, [isRecording, isArmed, stopRecording, startRecording]);
 
-    const handleExport = () => {
+    const handleExport = useCallback(() => {
         if (!activeSample.buffer) {
             alert("No audio content to export.");
             return;
@@ -107,24 +121,24 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-    };
+    }, [activeSample.buffer, activeSample.name]);
 
     const handleFileImportClick = () => fileInputRef.current?.click();
 
-    const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelected = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
             loadSampleFromBlob(file, activeSampleId, file.name.replace(/\.[^/.]+$/, ""));
             if (event.target) event.target.value = '';
         }
-    };
+    }, [loadSampleFromBlob, activeSampleId]);
     
-    const handleThresholdChange = (uiValue: number) => {
+    const handleThresholdChange = useCallback((uiValue: number) => {
         // Use a 4th power curve for more precision at lower values
         const actualValue = Math.pow(uiValue, 4);
         dispatch({ type: ActionType.SET_RECORDING_THRESHOLD, payload: actualValue });
-    };
-
+    }, [dispatch]);
+    
     const MIN_FREQ = 20, MAX_FREQ = 20000;
     const linearToLog = (v: number) => MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, v);
     const logToLinear = (v: number) => (v <= MIN_FREQ) ? 0 : (v >= MAX_FREQ) ? 1 : Math.log(v / MIN_FREQ) / Math.log(MAX_FREQ / MIN_FREQ);
@@ -187,8 +201,8 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        <Fader label="LP" value={logToLinear(activeSample.lpFreq)} onChange={(v) => handleParamChange('lpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={1} displayValue={activeSample.lpFreq} displayPrecision={0} />
-                        <Fader label="HP" value={logToLinear(activeSample.hpFreq)} onChange={(v) => handleParamChange('hpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={0} displayValue={activeSample.hpFreq} displayPrecision={0} />
+                         <Fader label="LP" value={logToLinear(activeSample.lpFreq)} onChange={(v) => handleParamChange('lpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={1} displayValue={activeSample.lpFreq} displayPrecision={0} />
+                         <Fader label="HP" value={logToLinear(activeSample.hpFreq)} onChange={(v) => handleParamChange('hpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={0} displayValue={activeSample.hpFreq} displayPrecision={0} />
                     </div>
                 )}
                 
@@ -203,4 +217,4 @@ const SampleView: React.FC<SampleViewProps> = ({ playSample, startRecording, sto
     );
 };
 
-export default SampleView;
+export default React.memo(SampleView);

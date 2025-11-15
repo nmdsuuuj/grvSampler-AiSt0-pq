@@ -48,7 +48,7 @@ const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterR
     }
     // Only update the base BPM when the mode is switched to 'ratio'.
     // Tapping a new tempo will correctly update the base via the handleTap callback.
-  }, [bpmMode]);
+  }, [bpmMode, bpm]);
 
   const handlePlayToggle = () => {
     if(state.audioContext && state.audioContext.state === 'suspended') {
@@ -196,7 +196,7 @@ const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterR
     <div className="flex items-center space-x-2">
       <button
         onClick={handlePlayToggle}
-        className={`w-20 px-4 py-3 font-bold rounded-md transition-colors ${isPlaying ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+        className={`w-16 px-4 py-3 font-bold rounded-md transition-colors ${isPlaying ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
       >
         {isPlaying ? 'STOP' : 'PLAY'}
       </button>
