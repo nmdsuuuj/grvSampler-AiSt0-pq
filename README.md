@@ -1,20 +1,26 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Groove Sampler
 
-# Run and deploy your AI Studio app
+An advanced sampler and sequencer for mobile browsers, featuring a powerful groove engine for creating unique rhythms. Record sounds, arrange patterns, and manipulate your beats with detailed controls, including support for microtonal world music scales.
 
-This contains everything you need to run your app locally.
+## Key Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/1TQSnqefB8yYPU7lbdEJl58HIeo5FBOdq
+-   **4 Banks & 32 Pads**: Organize your sounds across four banks, each with eight sample pads.
+-   **32-Step Sequencer**: Create complex rhythms with a 32-step sequencer featuring A/B parts with independent lengths, resolutions, and loop counts.
+-   **Per-Bank Groove Engine**: Apply unique groove templates and depths to each of the four banks independently, allowing for complex polyrhythms. The groove settings are saved with each pattern.
+-   **Microtonal Engine & World Scales**: Go beyond 12-tone music with a cents-based pitch engine and a huge library of authentic world scales (Maqamat, Ragas, Gamelan, and more).
+-   **Comprehensive PC Keyboard Control**: Control the entire application with your computer keyboard. Play pads, perform melodies with a scale-aware keyboard, change octaves, keys, and scales, and access UI functions on the fly.
+-   **Sampling & Drum Kits**: Record your own sounds directly through the microphone, or load pre-made classic drum machine kits.
+-   **Channel Mixer & Master FX**: Mix your four banks with dedicated volume faders, pan controls, and Mute/Solo buttons. A master compressor and safety clipper are included on the master channel to add punch and prevent clipping.
+-   **Project Saving**: Save and load your entire projects, including all samples, patterns, and settings.
 
-## Run Locally
+## Current Status
 
-**Prerequisites:**  Node.js
+This is an actively developed project. For a list of current features and known issues (such as the **Load Kit** and **Pattern Copy/Paste** functionality), please see the [CHANGELOG.md](./CHANGELOG.md) file.
 
+## PC Keyboard Shortcuts
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+For a detailed list of all available keyboard shortcuts, please see the [KEYBOARD_SHORTCUTS.md](./KEYBOARD_SHORTCUTS.md) file.
+
+## Build for Android
+
+To resolve mobile browser issues (like screen scrolling on fader use), you can package this web app into a native Android APK. For instructions, please see the [BUILD_GUIDE.md](./BUILD_GUIDE.md) file.
