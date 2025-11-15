@@ -1,4 +1,3 @@
-
 export interface Groove {
     id: number;
     name: string;
@@ -62,6 +61,19 @@ export interface PlaybackParams {
     hpFreq: number;
 }
 
+export interface LaneClipboardData {
+    steps: Step[];
+    paramLocks: Pattern['paramLocks'][number];
+}
+
+export interface BankClipboardData {
+    sequences: Step[][];
+    paramLocks: Record<number, Pattern['paramLocks'][number]>; // paramLocks indexed 0-7
+    grooveId: number;
+    grooveDepth: number;
+}
+
+
 export interface AppState {
     audioContext: AudioContext | null;
     isInitialized: boolean;
@@ -93,6 +105,8 @@ export interface AppState {
     isMasterRecArmed: boolean;
     sampleClipboard: Sample | null;
     patternClipboard: Pattern | null;
+    laneClipboard: LaneClipboardData | null;
+    bankClipboard: BankClipboardData | null;
     masterCompressorOn: boolean;
     masterCompressorParams: MasterCompressorParams;
     playbackTrackStates: {
@@ -146,6 +160,10 @@ export enum ActionType {
     APPLY_BANK_A_DRUM_TEMPLATE,
     COPY_PATTERN,
     PASTE_PATTERN,
+    COPY_LANE,
+    PASTE_LANE,
+    COPY_BANK,
+    PASTE_BANK,
     SET_KEYBOARD_OCTAVE,
     SET_SEQ_MODE,
 }
@@ -195,5 +213,9 @@ export type Action =
     | { type: ActionType.APPLY_BANK_A_DRUM_TEMPLATE, payload: { patternId: number; sequences: { [key: number]: boolean[] } } }
     | { type: ActionType.COPY_PATTERN, payload: { patternId: number } }
     | { type: ActionType.PASTE_PATTERN, payload: { patternId: number } }
+    | { type: ActionType.COPY_LANE }
+    | { type: ActionType.PASTE_LANE }
+    | { type: ActionType.COPY_BANK }
+    | { type: ActionType.PASTE_BANK }
     | { type: ActionType.SET_KEYBOARD_OCTAVE, payload: number }
     | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' };

@@ -1,5 +1,4 @@
-
-import React, { useContext, useState, useMemo } from 'react';
+import React, { useContext, useState, useMemo, useEffect, useRef } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, Pattern, LockableParam, Sample, PlaybackParams } from '../../types';
 import Pad from '../Pad';
@@ -35,7 +34,7 @@ interface SeqViewProps {
 }
 
 const ALL_RATE_VALUES = [32, 27, 24, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4, 3];
-type SeqMode = 'PART' | 'PARAM' | 'REC';
+type CopyPasteScope = 'lane' | 'bank' | 'pattern';
 type ParamGridMode = 'select' | 'selectAndGate';
 
 const LoopMeter: React.FC<{ part: 'A' | 'B'; count: number; currentRep: number }> = ({ part, count, currentRep }) => (
@@ -205,7 +204,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     const [selectedStep, setSelectedStep] = useState<number>(0);
     const [paramGridMode, setParamGridMode] = useState<ParamGridMode>('select');
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-
+    const [copyPasteScope, setCopyPasteScope] = useState<CopyPasteScope>('lane');
 
     const {
         patterns,
@@ -221,6 +220,26 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
         activeScale,
         seqMode,
     } = state;
+
+    // --- Smart Scope Selector Logic ---
+    const prevSampleIdRef = useRef(activeSampleId);
+    const prevBankRef = useRef(activeSampleBank);
+
+    useEffect(() => {
+        const prevBank = prevBankRef.current;
+        const prevSampleId = prevSampleIdRef.current;
+
+        if (activeSampleBank !== prevBank) {
+            setCopyPasteScope('bank');
+        } else if (activeSampleId !== prevSampleId) {
+            setCopyPasteScope('lane');
+        }
+        
+        // Update refs for the next render
+        prevBankRef.current = activeSampleBank;
+        prevSampleIdRef.current = activeSampleId;
+    }, [activeSampleId, activeSampleBank]);
+    // --- End Logic ---
     
     const activePatternId = activePatternIds[activeSampleBank];
     const activePattern = patterns.find(p => p.id === activePatternId);
@@ -319,7 +338,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
         setIsTemplateModalOpen(false);
     };
 
-    const handleUtilButtonClick = (type: 'clear' | 'fill' | 'rand_steps' | 'rand_pitch' | 'copy' | 'paste') => {
+    const handleUtilButtonClick = (type: 'clear' | 'fill' | 'rand_steps' | 'rand_pitch') => {
         if (!activePattern) return;
         switch (type) {
             case 'clear':
@@ -334,15 +353,39 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
             case 'rand_pitch':
                 dispatch({ type: ActionType.RANDOMIZE_PITCH, payload: { patternId: activePattern.id, sampleId: activeSampleId, key: activeKey, scale: activeScale } });
                 break;
-            case 'copy':
-                dispatch({ type: ActionType.COPY_PATTERN, payload: { patternId: activePattern.id } });
+        }
+    };
+    
+    const handleCopy = () => {
+        if (!activePattern) return;
+        switch (copyPasteScope) {
+            case 'lane':
+                dispatch({ type: ActionType.COPY_LANE });
                 break;
-            case 'paste':
-                dispatch({ type: ActionType.PASTE_PATTERN, payload: { patternId: activePattern.id } });
+            case 'bank':
+                dispatch({ type: ActionType.COPY_BANK });
+                break;
+            case 'pattern':
+                dispatch({ type: ActionType.COPY_PATTERN, payload: { patternId: activePattern.id } });
                 break;
         }
     };
     
+    const handlePaste = () => {
+        if (!activePattern) return;
+        switch (copyPasteScope) {
+            case 'lane':
+                dispatch({ type: ActionType.PASTE_LANE });
+                break;
+            case 'bank':
+                dispatch({ type: ActionType.PASTE_BANK });
+                break;
+            case 'pattern':
+                dispatch({ type: ActionType.PASTE_PATTERN, payload: { patternId: activePattern.id } });
+                break;
+        }
+    };
+
     const sampleBankOffset = activeSampleBank * PADS_PER_BANK;
     const patternBankOffsetForView = (activeSampleBank * PATTERNS_PER_BANK) + (patternViewBank * PADS_PER_BANK);
 
@@ -357,6 +400,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
     return (
         <div className="flex flex-col h-full p-1 space-y-1">
             <TemplateModal isOpen={isTemplateModalOpen} onClose={() => setIsTemplateModalOpen(false)} onSelect={handleApplyTemplate} />
+
             <div className="flex items-center justify-center space-x-1 p-1 bg-emerald-200 rounded-lg">
                 <button 
                     onClick={() => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'PART' })}
@@ -484,14 +528,31 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                     })}
                 </div>
                  { (seqMode === 'PART' || seqMode === 'REC') && (
-                    <div className="mt-1 grid grid-cols-4 grid-rows-2 gap-1">
-                        <button onClick={() => setIsTemplateModalOpen(true)} className={`${utilityButtonClass} row-span-2 bg-pink-200 text-pink-800 hover:bg-pink-300 focus:ring-pink-400 flex items-center justify-center`}>Apply<br/>Tmplt</button>
-                        <button onClick={() => handleUtilButtonClick('clear')} className={utilityButtonClass}>Clear</button>
-                        <button onClick={() => handleUtilButtonClick('fill')} className={utilityButtonClass}>Fill</button>
-                        <button onClick={() => handleUtilButtonClick('rand_steps')} className={`${utilityButtonClass} bg-sky-200 text-sky-800 hover:bg-sky-300 focus:ring-sky-400`}>Rand Steps</button>
-                        <button onClick={() => handleUtilButtonClick('rand_pitch')} className={`${utilityButtonClass} bg-sky-200 text-sky-800 hover:bg-sky-300 focus:ring-sky-400`}>Rand Pitch</button>
-                        <button onClick={() => handleUtilButtonClick('copy')} className={`${utilityButtonClass}`}>Copy Ptn</button>
-                        <button onClick={() => handleUtilButtonClick('paste')} className={`${utilityButtonClass}`}>Paste Ptn</button>
+                    <div className="mt-1 grid grid-cols-5 grid-rows-1 gap-1">
+                        <button onClick={() => setIsTemplateModalOpen(true)} className={`${utilityButtonClass} bg-pink-200 text-pink-800 hover:bg-pink-300 focus:ring-pink-400 flex items-center justify-center`}>Apply<br/>Tmplt</button>
+                        <div className="grid grid-cols-2 col-span-2 gap-1">
+                            <button onClick={() => handleUtilButtonClick('clear')} className={utilityButtonClass}>Clear</button>
+                            <button onClick={() => handleUtilButtonClick('fill')} className={utilityButtonClass}>Fill</button>
+                            <button onClick={() => handleUtilButtonClick('rand_steps')} className={`${utilityButtonClass} bg-sky-200 text-sky-800 hover:bg-sky-300 focus:ring-sky-400`}>Rand<br/>Steps</button>
+                            <button onClick={() => handleUtilButtonClick('rand_pitch')} className={`${utilityButtonClass} bg-sky-200 text-sky-800 hover:bg-sky-300 focus:ring-sky-400`}>Rand<br/>Pitch</button>
+                        </div>
+                        <div className="flex flex-col col-span-2 space-y-1">
+                            <div className="flex space-x-1 p-0.5 bg-emerald-200 rounded-md">
+                                {(['lane', 'bank', 'pattern'] as CopyPasteScope[]).map(scope => (
+                                    <button 
+                                        key={scope}
+                                        onClick={() => setCopyPasteScope(scope)}
+                                        className={`flex-grow py-1 text-[10px] font-bold rounded-sm transition-colors capitalize ${copyPasteScope === scope ? 'bg-white text-slate-800 shadow-sm' : 'bg-transparent text-slate-600'}`}
+                                    >
+                                        {scope}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-2 gap-1">
+                                <button onClick={handleCopy} className={`${utilityButtonClass}`}>Copy</button>
+                                <button onClick={handlePaste} className={`${utilityButtonClass}`}>Paste</button>
+                            </div>
+                        </div>
                     </div>
                  )}
             </div>

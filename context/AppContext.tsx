@@ -1,6 +1,5 @@
-
 import React, { createContext, useReducer, Dispatch } from 'react';
-import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern } from '../types';
+import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
 import SCALES from '../scales';
 
@@ -69,6 +68,8 @@ const initialState: AppState = {
     isMasterRecArmed: false,
     sampleClipboard: null,
     patternClipboard: null,
+    laneClipboard: null,
+    bankClipboard: null,
     masterCompressorOn: false,
     masterCompressorParams: {
         threshold: -24,
@@ -100,29 +101,32 @@ const appReducer = (state: AppState, action: Action): AppState => {
             newCurrentSteps[bankIndex] = step;
             return { ...state, currentSteps: newCurrentSteps };
         }
-        case ActionType.SET_ACTIVE_SAMPLE:
-             // When changing sample, also change bank and load that bank's active pattern's groove state
-            const newBankIndexForSample = Math.floor(action.payload / PADS_PER_BANK);
-            const activePatternIdForSample = state.activePatternIds[newBankIndexForSample];
-            const activePatternForSample = state.patterns.find(p => p.id === activePatternIdForSample);
+        case ActionType.SET_ACTIVE_SAMPLE: {
+            const newSampleId = action.payload;
+            const newBankIndex = Math.floor(newSampleId / PADS_PER_BANK);
+            
+            // CRITICAL FIX: Changing the active sample/bank is a UI focus change.
+            // It should NOT alter the "live" groove state, which is derived from the
+            // active patterns of each bank and used for playback. The original logic
+            // incorrectly reloaded the entire groove state, causing other banks'
+            // grooves to change unexpectedly.
             return {
                 ...state,
-                activeSampleId: action.payload,
-                activeSampleBank: newBankIndexForSample,
-                activeGrooveIds: activePatternForSample?.grooveIds || state.activeGrooveIds,
-                grooveDepths: activePatternForSample?.grooveDepths || state.grooveDepths,
+                activeSampleId: newSampleId,
+                activeSampleBank: newBankIndex,
             };
-        case ActionType.SET_ACTIVE_SAMPLE_BANK:
-            // When changing bank, load that bank's active pattern's groove state
-            const activePatternIdForBank = state.activePatternIds[action.payload];
-            const activePatternForBank = state.patterns.find(p => p.id === activePatternIdForBank);
+        }
+        case ActionType.SET_ACTIVE_SAMPLE_BANK: {
+            const newBankIndex = action.payload;
+            
+            // CRITICAL FIX: Similar to SET_ACTIVE_SAMPLE, changing the focused bank
+            // is a UI action and should not affect the global groove playback state.
             return {
                 ...state,
-                activeSampleBank: action.payload,
-                activeSampleId: action.payload * PADS_PER_BANK,
-                activeGrooveIds: activePatternForBank?.grooveIds || state.activeGrooveIds,
-                grooveDepths: activePatternForBank?.grooveDepths || state.grooveDepths,
+                activeSampleBank: newBankIndex,
+                activeSampleId: newBankIndex * PADS_PER_BANK,
             };
+        }
         case ActionType.SET_ACTIVE_GROOVE: {
             const { bankIndex, grooveId } = action.payload;
             const newActiveGrooveIds = [...state.activeGrooveIds];
@@ -445,14 +449,24 @@ const appReducer = (state: AppState, action: Action): AppState => {
             const newActivePatternIds = [...state.activePatternIds];
             newActivePatternIds[bankIndex] = patternId;
 
-            // When changing pattern, load that pattern's groove state into the live state
+            // Find the newly activated pattern to read its groove settings
             const newActivePattern = state.patterns.find(p => p.id === patternId);
+            if (!newActivePattern) return state; // Should not happen, but good practice
+
+            // Create new "live" groove state arrays by copying the old ones
+            const newActiveGrooveIds = [...state.activeGrooveIds];
+            const newGrooveDepths = [...state.grooveDepths];
+
+            // CRITICAL FIX: Update ONLY the groove settings for the bank whose pattern has changed.
+            // This preserves the independent groove settings of the other banks.
+            newActiveGrooveIds[bankIndex] = newActivePattern.grooveIds[bankIndex];
+            newGrooveDepths[bankIndex] = newActivePattern.grooveDepths[bankIndex];
 
             return {
                 ...state,
                 activePatternIds: newActivePatternIds,
-                activeGrooveIds: newActivePattern?.grooveIds || state.activeGrooveIds,
-                grooveDepths: newActivePattern?.grooveDepths || state.grooveDepths,
+                activeGrooveIds: newActiveGrooveIds,
+                grooveDepths: newGrooveDepths,
             };
         }
         case ActionType.UPDATE_PATTERN_PARAMS: {
@@ -577,6 +591,121 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 };
             }
  
+            return { ...state, patterns: newPatterns };
+        }
+        case ActionType.COPY_LANE: {
+            const { activePatternIds, activeSampleBank, patterns, activeSampleId } = state;
+            const activePatternId = activePatternIds[activeSampleBank];
+            const pattern = patterns.find(p => p.id === activePatternId);
+            if (!pattern) return state;
+
+            const laneClipboard: LaneClipboardData = {
+                steps: JSON.parse(JSON.stringify(pattern.steps[activeSampleId])),
+                paramLocks: JSON.parse(JSON.stringify(pattern.paramLocks[activeSampleId] || {})),
+            };
+            return { ...state, laneClipboard };
+        }
+        case ActionType.PASTE_LANE: {
+            if (!state.laneClipboard) return state;
+            const { activePatternIds, activeSampleBank, activeSampleId } = state;
+            const activePatternId = activePatternIds[activeSampleBank];
+
+            const newPatterns = state.patterns.map(p => {
+                if (p.id !== activePatternId) return p;
+
+                const newSteps = [...p.steps];
+                newSteps[activeSampleId] = JSON.parse(JSON.stringify(state.laneClipboard!.steps));
+
+                const newParamLocks = { ...p.paramLocks };
+                newParamLocks[activeSampleId] = JSON.parse(JSON.stringify(state.laneClipboard!.paramLocks));
+                
+                return { ...p, steps: newSteps, paramLocks: newParamLocks };
+            });
+
+            return { ...state, patterns: newPatterns };
+        }
+        case ActionType.COPY_BANK: {
+            const { activePatternIds, activeSampleBank, patterns } = state;
+            const activePatternId = activePatternIds[activeSampleBank];
+            const pattern = patterns.find(p => p.id === activePatternId);
+            if (!pattern) return state;
+
+            const startSampleId = activeSampleBank * PADS_PER_BANK;
+            const endSampleId = startSampleId + PADS_PER_BANK;
+            
+            const bankSequences = pattern.steps.slice(startSampleId, endSampleId);
+            const bankParamLocks: BankClipboardData['paramLocks'] = {};
+            for (let i = startSampleId; i < endSampleId; i++) {
+                if (pattern.paramLocks[i]) {
+                    bankParamLocks[i - startSampleId] = pattern.paramLocks[i];
+                }
+            }
+
+            const bankClipboard: BankClipboardData = {
+                sequences: JSON.parse(JSON.stringify(bankSequences)),
+                paramLocks: JSON.parse(JSON.stringify(bankParamLocks)),
+                grooveId: pattern.grooveIds[activeSampleBank],
+                grooveDepth: pattern.grooveDepths[activeSampleBank],
+            };
+            return { ...state, bankClipboard };
+        }
+        case ActionType.PASTE_BANK: {
+             if (!state.bankClipboard) return state;
+            const { activePatternIds, activeSampleBank } = state;
+            const activePatternId = activePatternIds[activeSampleBank];
+            
+            const newPatterns = state.patterns.map(p => {
+                if (p.id !== activePatternId) return p;
+
+                const newSteps = [...p.steps];
+                const newParamLocks = { ...p.paramLocks };
+                
+                const startSampleId = activeSampleBank * PADS_PER_BANK;
+                
+                // Paste sequences
+                for (let i = 0; i < PADS_PER_BANK; i++) {
+                    newSteps[startSampleId + i] = state.bankClipboard!.sequences[i];
+                }
+
+                // Paste param locks, re-indexing the keys
+                for (let i = 0; i < PADS_PER_BANK; i++) {
+                    const localIndex = i;
+                    const globalIndex = startSampleId + i;
+                    if (state.bankClipboard.paramLocks[localIndex]) {
+                         newParamLocks[globalIndex] = state.bankClipboard.paramLocks[localIndex];
+                    } else {
+                        delete newParamLocks[globalIndex];
+                    }
+                }
+                
+                // Paste groove
+                const newGrooveIds = [...p.grooveIds];
+                const newGrooveDepths = [...p.grooveDepths];
+                newGrooveIds[activeSampleBank] = state.bankClipboard.grooveId;
+                newGrooveDepths[activeSampleBank] = state.bankClipboard.grooveDepth;
+                
+                const newPattern = { 
+                    ...p, 
+                    steps: newSteps, 
+                    paramLocks: newParamLocks,
+                    grooveIds: newGrooveIds,
+                    grooveDepths: newGrooveDepths,
+                };
+                
+                return newPattern;
+            });
+            
+             // If pasting into the currently active bank, also load the pasted groove state
+            const { activePatternIds: currentActivePatternIds, activeSampleBank: currentActiveSampleBank } = state;
+            if (activePatternId === currentActivePatternIds[currentActiveSampleBank]) {
+                 return { 
+                    ...state, 
+                    patterns: newPatterns,
+                    activeGrooveIds: newPatterns.find(p=>p.id === activePatternId)!.grooveIds,
+                    grooveDepths: newPatterns.find(p=>p.id === activePatternId)!.grooveDepths,
+                };
+            }
+
             return { ...state, patterns: newPatterns };
         }
         case ActionType.TOGGLE_MASTER_COMPRESSOR:
