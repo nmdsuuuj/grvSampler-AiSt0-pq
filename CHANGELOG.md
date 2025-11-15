@@ -2,6 +2,52 @@
 
 This document tracks the major changes, feature implementations, and requirement adjustments throughout the development of the Groove Sampler application.
 
+## Version 0.6.2 - Advanced Management Features
+
+This update adds advanced management features for better data organization and memory optimization, especially important for smartphone usage.
+
+### Implemented Features
+
+- **Bulk Delete Functionality**:
+  - **Multi-Selection Mode**: Toggle "一括削除" (Bulk Delete) mode to select multiple projects/kits
+  - **Checkbox Selection**: Click checkboxes to select items for deletion
+  - **Visual Feedback**: Selected items are highlighted in red
+  - **Bulk Delete Button**: Delete all selected items at once
+  - Works for both projects and kits
+
+- **Date Range Delete**:
+  - **Date Range Selection**: Delete projects/kits older than specified number of days
+  - **Configurable Days**: Input field to set the number of days (default: 30)
+  - **Separate Actions**: Delete old projects and kits independently
+  - **Confirmation**: Shows count of items to be deleted before deletion
+
+- **Storage Cleanup Tools**:
+  - **Cleanup Analysis**: Analyzes storage for unused samples and duplicate projects/kits
+  - **Duplicate Detection**: Identifies projects/kits with the same name
+  - **Duplicate Removal**: Keeps the oldest item in each duplicate group, deletes others
+  - **Visual Feedback**: Shows counts of unused samples, duplicate projects, and duplicate kits
+  - **Re-analysis**: Button to refresh cleanup analysis
+
+- **Memory Management Optimizations**:
+  - **Batch Loading**: Projects and kits are loaded in batches of 8 samples to avoid memory spikes
+  - **Memory Cleanup**: Clears current samples from memory before loading new ones
+  - **Garbage Collection Hint**: Attempts to trigger garbage collection (if available)
+  - **Source Node Cleanup**: AudioBufferSourceNode cleanup after playback ends
+  - **Error Handling**: Specific error messages for memory-related issues
+
+### Technical Improvements
+
+- **Memory Optimization**:
+  - Batch processing reduces peak memory usage during project/kit loading
+  - Explicit cleanup of audio nodes to prevent memory leaks
+  - Small delays between batches to allow browser processing
+
+- **UI Enhancements**:
+  - Bulk delete mode with visual selection indicators
+  - Date range delete interface with number input
+  - Storage cleanup panel integrated into storage usage display
+  - Better error messages for memory-related issues
+
 ## Version 0.6.1 - Project & Kit Management Improvements
 
 This update focuses on improving the project and kit management system for better reliability and usability, especially on smartphones.

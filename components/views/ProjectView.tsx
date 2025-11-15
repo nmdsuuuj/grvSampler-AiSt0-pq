@@ -46,6 +46,13 @@ const ProjectView: React.FC = () => {
     const [editingKitId, setEditingKitId] = useState<number | null>(null);
     const [editProjectName, setEditProjectName] = useState('');
     const [editKitName, setEditKitName] = useState('');
+    const [selectedProjects, setSelectedProjects] = useState<Set<number>>(new Set());
+    const [selectedKits, setSelectedKits] = useState<Set<number>>(new Set());
+    const [showBulkDelete, setShowBulkDelete] = useState(false);
+    const [showDateRangeDelete, setShowDateRangeDelete] = useState(false);
+    const [dateRangeDays, setDateRangeDays] = useState<number>(30);
+    const [showCleanup, setShowCleanup] = useState(false);
+    const [cleanupInfo, setCleanupInfo] = useState<{ unusedSamples: number; duplicateProjects: number; duplicateKits: number } | null>(null);
 
     const refreshData = useCallback(async () => {
         const projs = await db.projects.orderBy('createdAt').reverse().toArray();
@@ -142,13 +149,39 @@ const ProjectView: React.FC = () => {
                 return;
             }
             
-            // Convert stored samples back to AudioBuffers
-            const newSamples: Sample[] = await Promise.all(
-                project.samples.map(async (s) => {
-                    const buffer = storableToAudioBuffer(s.bufferData, state.audioContext!);
-                    return { ...s, buffer };
-                })
-            );
+            // Clear current samples from memory first to free up space
+            const currentSamples = state.samples.map(s => ({ ...s, buffer: null }));
+            dispatch({ type: ActionType.SET_SAMPLES, payload: currentSamples });
+            
+            // Force garbage collection hint (browser may or may not honor this)
+            if (window.gc) {
+                window.gc();
+            }
+            
+            // Convert stored samples back to AudioBuffers in batches to avoid memory spikes
+            const BATCH_SIZE = 8; // Process 8 samples at a time
+            const newSamples: Sample[] = [...state.samples];
+            
+            for (let i = 0; i < project.samples.length; i += BATCH_SIZE) {
+                const batch = project.samples.slice(i, i + BATCH_SIZE);
+                const batchBuffers = await Promise.all(
+                    batch.map(async (s) => {
+                        const buffer = storableToAudioBuffer(s.bufferData, state.audioContext!);
+                        return { ...s, buffer };
+                    })
+                );
+                
+                // Update samples array in place
+                batch.forEach((s, idx) => {
+                    const sampleIndex = s.id;
+                    if (sampleIndex >= 0 && sampleIndex < newSamples.length) {
+                        newSamples[sampleIndex] = batchBuffers[idx];
+                    }
+                });
+                
+                // Small delay to allow browser to process
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
             
             const stateToLoad: Partial<AppState> = { 
                 ...project.state, 
@@ -164,9 +197,13 @@ const ProjectView: React.FC = () => {
             alert(`プロジェクト "${project.name}" を読み込みました！`);
         } catch (error: any) {
             console.error('Error loading project:', error);
-            alert(`プロジェクトの読み込みに失敗しました: ${error.message || '不明なエラー'}`);
+            if (error.name === 'QuotaExceededError') {
+                alert('メモリが不足しています。他のアプリを閉じてから再度お試しください。');
+            } else {
+                alert(`プロジェクトの読み込みに失敗しました: ${error.message || '不明なエラー'}`);
+            }
         }
-    }, [state.audioContext, dispatch]);
+    }, [state.audioContext, state.samples, dispatch]);
 
     const handleDeleteProject = async (projectId: number) => {
         if (!window.confirm('このプロジェクトを削除しますか？')) {
@@ -222,21 +259,42 @@ const ProjectView: React.FC = () => {
                 return;
             }
             
-            // Convert stored samples back to AudioBuffers
-            const newSamples: Sample[] = await Promise.all(
-                kit.samples.map(async (s) => {
-                    const buffer = storableToAudioBuffer(s.bufferData, state.audioContext!);
-                    return { ...s, buffer };
-                })
-            );
+            // Load kit samples in batches to avoid memory spikes
+            const BATCH_SIZE = 8;
+            const newSamples = [...state.samples];
+            
+            for (let i = 0; i < kit.samples.length; i += BATCH_SIZE) {
+                const batch = kit.samples.slice(i, i + BATCH_SIZE);
+                const batchBuffers = await Promise.all(
+                    batch.map(async (s) => {
+                        const buffer = storableToAudioBuffer(s.bufferData, state.audioContext!);
+                        return { ...s, buffer };
+                    })
+                );
+                
+                // Update samples array in place
+                batch.forEach((s, idx) => {
+                    const sampleIndex = s.id;
+                    if (sampleIndex >= 0 && sampleIndex < newSamples.length) {
+                        newSamples[sampleIndex] = batchBuffers[idx];
+                    }
+                });
+                
+                // Small delay to allow browser to process
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
             
             dispatch({ type: ActionType.SET_SAMPLES, payload: newSamples });
             alert(`キット "${kit.name}" を読み込みました！`);
         } catch (error: any) {
             console.error('Error loading kit:', error);
-            alert(`キットの読み込みに失敗しました: ${error.message || '不明なエラー'}`);
+            if (error.name === 'QuotaExceededError') {
+                alert('メモリが不足しています。他のアプリを閉じてから再度お試しください。');
+            } else {
+                alert(`キットの読み込みに失敗しました: ${error.message || '不明なエラー'}`);
+            }
         }
-    }, [state.audioContext, dispatch]);
+    }, [state.audioContext, state.samples, dispatch]);
     
     const handleDeleteKit = async (kitId: number) => {
         if (!window.confirm('このキットを削除しますか？')) {
@@ -415,6 +473,268 @@ const ProjectView: React.FC = () => {
         setEditKitName(kit.name);
     };
 
+    const handleToggleProjectSelection = (projectId: number) => {
+        const newSelected = new Set(selectedProjects);
+        if (newSelected.has(projectId)) {
+            newSelected.delete(projectId);
+        } else {
+            newSelected.add(projectId);
+        }
+        setSelectedProjects(newSelected);
+    };
+
+    const handleToggleKitSelection = (kitId: number) => {
+        const newSelected = new Set(selectedKits);
+        if (newSelected.has(kitId)) {
+            newSelected.delete(kitId);
+        } else {
+            newSelected.add(kitId);
+        }
+        setSelectedKits(newSelected);
+    };
+
+    const handleBulkDeleteProjects = async () => {
+        if (selectedProjects.size === 0) {
+            alert('削除するプロジェクトを選択してください。');
+            return;
+        }
+        
+        if (!window.confirm(`${selectedProjects.size}個のプロジェクトを削除しますか？`)) {
+            return;
+        }
+        
+        try {
+            await Promise.all(Array.from(selectedProjects).map(id => db.projects.delete(id)));
+            setSelectedProjects(new Set());
+            setShowBulkDelete(false);
+            refreshData();
+            alert(`${selectedProjects.size}個のプロジェクトを削除しました。`);
+        } catch (error: any) {
+            console.error('Error bulk deleting projects:', error);
+            alert(`一括削除に失敗しました: ${error.message || '不明なエラー'}`);
+        }
+    };
+
+    const handleBulkDeleteKits = async () => {
+        if (selectedKits.size === 0) {
+            alert('削除するキットを選択してください。');
+            return;
+        }
+        
+        if (!window.confirm(`${selectedKits.size}個のキットを削除しますか？`)) {
+            return;
+        }
+        
+        try {
+            await Promise.all(Array.from(selectedKits).map(id => db.sampleKits.delete(id)));
+            setSelectedKits(new Set());
+            setShowBulkDelete(false);
+            refreshData();
+            alert(`${selectedKits.size}個のキットを削除しました。`);
+        } catch (error: any) {
+            console.error('Error bulk deleting kits:', error);
+            alert(`一括削除に失敗しました: ${error.message || '不明なエラー'}`);
+        }
+    };
+
+    const handleDeleteProjectsByDateRange = async () => {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - dateRangeDays);
+        
+        const projectsToDelete = projects.filter(p => p.createdAt < cutoffDate);
+        
+        if (projectsToDelete.length === 0) {
+            alert(`${dateRangeDays}日以上前のプロジェクトはありません。`);
+            return;
+        }
+        
+        if (!window.confirm(`${dateRangeDays}日以上前のプロジェクト${projectsToDelete.length}個を削除しますか？`)) {
+            return;
+        }
+        
+        try {
+            await Promise.all(projectsToDelete.map(p => db.projects.delete(p.id!)));
+            setShowDateRangeDelete(false);
+            refreshData();
+            alert(`${projectsToDelete.length}個のプロジェクトを削除しました。`);
+        } catch (error: any) {
+            console.error('Error deleting projects by date range:', error);
+            alert(`削除に失敗しました: ${error.message || '不明なエラー'}`);
+        }
+    };
+
+    const handleDeleteKitsByDateRange = async () => {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - dateRangeDays);
+        
+        const kitsToDelete = kits.filter(k => k.createdAt < cutoffDate);
+        
+        if (kitsToDelete.length === 0) {
+            alert(`${dateRangeDays}日以上前のキットはありません。`);
+            return;
+        }
+        
+        if (!window.confirm(`${dateRangeDays}日以上前のキット${kitsToDelete.length}個を削除しますか？`)) {
+            return;
+        }
+        
+        try {
+            await Promise.all(kitsToDelete.map(k => db.sampleKits.delete(k.id!)));
+            setShowDateRangeDelete(false);
+            refreshData();
+            alert(`${kitsToDelete.length}個のキットを削除しました。`);
+        } catch (error: any) {
+            console.error('Error deleting kits by date range:', error);
+            alert(`削除に失敗しました: ${error.message || '不明なエラー'}`);
+        }
+    };
+
+    const analyzeCleanup = useCallback(async () => {
+        // Find unused samples (samples that are not referenced in any project)
+        const allProjects = await db.projects.toArray();
+        const usedSampleIds = new Set<number>();
+        
+        allProjects.forEach(project => {
+            project.samples.forEach(sample => {
+                usedSampleIds.add(sample.id);
+            });
+        });
+        
+        // Count unused samples (samples with IDs not in any project)
+        const unusedSamples = state.samples.filter(s => !usedSampleIds.has(s.id) && s.buffer !== null).length;
+        
+        // Find duplicate projects (same name and similar creation time)
+        const projectGroups = new Map<string, Project[]>();
+        allProjects.forEach(p => {
+            const key = p.name.toLowerCase().trim();
+            if (!projectGroups.has(key)) {
+                projectGroups.set(key, []);
+            }
+            projectGroups.get(key)!.push(p);
+        });
+        
+        let duplicateProjects = 0;
+        projectGroups.forEach(group => {
+            if (group.length > 1) {
+                duplicateProjects += group.length - 1; // Keep one, count others as duplicates
+            }
+        });
+        
+        // Find duplicate kits
+        const allKits = await db.sampleKits.toArray();
+        const kitGroups = new Map<string, SampleKit[]>();
+        allKits.forEach(k => {
+            const key = k.name.toLowerCase().trim();
+            if (!kitGroups.has(key)) {
+                kitGroups.set(key, []);
+            }
+            kitGroups.get(key)!.push(k);
+        });
+        
+        let duplicateKits = 0;
+        kitGroups.forEach(group => {
+            if (group.length > 1) {
+                duplicateKits += group.length - 1;
+            }
+        });
+        
+        setCleanupInfo({
+            unusedSamples,
+            duplicateProjects,
+            duplicateKits,
+        });
+    }, [state.samples]);
+
+    const handleCleanupUnusedSamples = async () => {
+        if (!cleanupInfo || cleanupInfo.unusedSamples === 0) {
+            alert('削除できる未使用サンプルはありません。');
+            return;
+        }
+        
+        if (!window.confirm(`未使用のサンプル${cleanupInfo.unusedSamples}個を削除しますか？\n（プロジェクトに保存されているサンプルは影響を受けません）`)) {
+            return;
+        }
+        
+        // Note: This is a placeholder - actual cleanup would require more complex logic
+        // since samples are stored within projects, not separately
+        alert('未使用サンプルのクリーンアップ機能は、プロジェクト構造の変更が必要なため、将来のバージョンで実装予定です。');
+    };
+
+    const handleCleanupDuplicates = async () => {
+        if (!cleanupInfo) return;
+        
+        const totalDuplicates = cleanupInfo.duplicateProjects + cleanupInfo.duplicateKits;
+        if (totalDuplicates === 0) {
+            alert('重複データは見つかりませんでした。');
+            return;
+        }
+        
+        if (!window.confirm(`重複プロジェクト${cleanupInfo.duplicateProjects}個、重複キット${cleanupInfo.duplicateKits}個を削除しますか？\n（各グループで最も古いものを残します）`)) {
+            return;
+        }
+        
+        try {
+            // Clean up duplicate projects
+            const allProjects = await db.projects.toArray();
+            const projectGroups = new Map<string, Project[]>();
+            allProjects.forEach(p => {
+                const key = p.name.toLowerCase().trim();
+                if (!projectGroups.has(key)) {
+                    projectGroups.set(key, []);
+                }
+                projectGroups.get(key)!.push(p);
+            });
+            
+            const projectsToDelete: number[] = [];
+            projectGroups.forEach(group => {
+                if (group.length > 1) {
+                    // Sort by creation date, keep the oldest
+                    group.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+                    // Delete all except the first (oldest)
+                    for (let i = 1; i < group.length; i++) {
+                        projectsToDelete.push(group[i].id!);
+                    }
+                }
+            });
+            
+            // Clean up duplicate kits
+            const allKits = await db.sampleKits.toArray();
+            const kitGroups = new Map<string, SampleKit[]>();
+            allKits.forEach(k => {
+                const key = k.name.toLowerCase().trim();
+                if (!kitGroups.has(key)) {
+                    kitGroups.set(key, []);
+                }
+                kitGroups.get(key)!.push(k);
+            });
+            
+            const kitsToDelete: number[] = [];
+            kitGroups.forEach(group => {
+                if (group.length > 1) {
+                    // Sort by creation date, keep the oldest
+                    group.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+                    // Delete all except the first (oldest)
+                    for (let i = 1; i < group.length; i++) {
+                        kitsToDelete.push(group[i].id!);
+                    }
+                }
+            });
+            
+            await Promise.all([
+                ...projectsToDelete.map(id => db.projects.delete(id)),
+                ...kitsToDelete.map(id => db.sampleKits.delete(id)),
+            ]);
+            
+            setShowCleanup(false);
+            setCleanupInfo(null);
+            refreshData();
+            alert(`${projectsToDelete.length}個のプロジェクトと${kitsToDelete.length}個のキットを削除しました。`);
+        } catch (error: any) {
+            console.error('Error cleaning up duplicates:', error);
+            alert(`クリーンアップに失敗しました: ${error.message || '不明なエラー'}`);
+        }
+    };
+
     const formatBytes = (bytes: number): string => {
         if (bytes === 0) return '0 B';
         const k = 1024;
@@ -429,7 +749,7 @@ const ProjectView: React.FC = () => {
             
             {/* Storage Usage Info */}
             {storageInfo && (
-                <div className={`bg-white shadow-md p-2 rounded-lg text-xs ${
+                <div className={`bg-white shadow-md p-2 rounded-lg text-xs space-y-2 ${
                     storageInfo.percentage > 80 ? 'bg-red-50 border-2 border-red-300' :
                     storageInfo.percentage > 60 ? 'bg-yellow-50 border-2 border-yellow-300' :
                     'bg-slate-50'
@@ -441,13 +761,54 @@ const ProjectView: React.FC = () => {
                         </span>
                     </div>
                     {storageInfo.percentage > 80 && (
-                        <div className="mt-1 text-red-600 text-xs">
+                        <div className="text-red-600 text-xs">
                             ⚠️ ストレージがほぼ満杯です。古いデータを削除してください。
                         </div>
                     )}
                     {storageInfo.percentage > 60 && storageInfo.percentage <= 80 && (
-                        <div className="mt-1 text-yellow-600 text-xs">
+                        <div className="text-yellow-600 text-xs">
                             ⚠️ ストレージ使用量が多くなっています。
+                        </div>
+                    )}
+                    <button
+                        onClick={() => {
+                            setShowCleanup(!showCleanup);
+                            if (!showCleanup) {
+                                analyzeCleanup();
+                            }
+                        }}
+                        className="w-full bg-purple-400 hover:bg-purple-500 text-white font-bold px-2 py-1 rounded text-xs"
+                    >
+                        {showCleanup ? 'クリーンアップを閉じる' : 'ストレージクリーンアップ'}
+                    </button>
+                    {showCleanup && (
+                        <div className="bg-purple-50 border border-purple-200 rounded p-2 space-y-2">
+                            {cleanupInfo ? (
+                                <>
+                                    <div className="text-xs space-y-1">
+                                        <div>未使用サンプル: {cleanupInfo.unusedSamples}個</div>
+                                        <div>重複プロジェクト: {cleanupInfo.duplicateProjects}個</div>
+                                        <div>重複キット: {cleanupInfo.duplicateKits}個</div>
+                                    </div>
+                                    <div className="flex space-x-2">
+                                        <button
+                                            onClick={handleCleanupDuplicates}
+                                            disabled={cleanupInfo.duplicateProjects === 0 && cleanupInfo.duplicateKits === 0}
+                                            className="flex-1 bg-purple-500 hover:bg-purple-600 disabled:bg-slate-300 disabled:text-slate-500 text-white font-bold px-2 py-1 rounded text-xs"
+                                        >
+                                            重複を削除
+                                        </button>
+                                        <button
+                                            onClick={analyzeCleanup}
+                                            className="bg-slate-400 hover:bg-slate-500 text-white font-bold px-2 py-1 rounded text-xs"
+                                        >
+                                            再分析
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="text-xs text-slate-600">分析中...</div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -455,7 +816,61 @@ const ProjectView: React.FC = () => {
 
             {/* Project Management */}
             <div className="bg-white shadow-md p-3 rounded-lg space-y-2">
-                <h3 className="font-bold text-slate-700">Project</h3>
+                <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-slate-700">Project</h3>
+                    <div className="flex space-x-1">
+                        <button
+                            onClick={() => {
+                                setShowBulkDelete(!showBulkDelete);
+                                setSelectedProjects(new Set());
+                            }}
+                            className={`text-xs px-2 py-1 rounded font-bold ${
+                                showBulkDelete ? 'bg-red-500 text-white' : 'bg-slate-300 text-slate-700'
+                            }`}
+                        >
+                            {showBulkDelete ? 'キャンセル' : '一括削除'}
+                        </button>
+                        <button
+                            onClick={() => setShowDateRangeDelete(!showDateRangeDelete)}
+                            className={`text-xs px-2 py-1 rounded font-bold ${
+                                showDateRangeDelete ? 'bg-orange-500 text-white' : 'bg-slate-300 text-slate-700'
+                            }`}
+                        >
+                            日付範囲削除
+                        </button>
+                    </div>
+                </div>
+                
+                {showDateRangeDelete && (
+                    <div className="bg-orange-50 border border-orange-200 rounded p-2 space-y-2">
+                        <div className="flex items-center space-x-2">
+                            <span className="text-xs font-semibold">削除する日数:</span>
+                            <input
+                                type="number"
+                                value={dateRangeDays}
+                                onChange={(e) => setDateRangeDays(parseInt(e.target.value) || 30)}
+                                min="1"
+                                className="w-20 bg-white border border-orange-300 rounded px-2 py-1 text-xs"
+                            />
+                            <span className="text-xs">日以上前</span>
+                        </div>
+                        <div className="flex space-x-2">
+                            <button
+                                onClick={handleDeleteProjectsByDateRange}
+                                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold px-2 py-1 rounded text-xs"
+                            >
+                                プロジェクト削除
+                            </button>
+                            <button
+                                onClick={handleDeleteKitsByDateRange}
+                                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold px-2 py-1 rounded text-xs"
+                            >
+                                キット削除
+                            </button>
+                        </div>
+                    </div>
+                )}
+                
                 <div className="flex space-x-2">
                     <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-pink-400" placeholder="Project Name" />
                     <button onClick={handleSaveProject} className="bg-pink-400 hover:bg-pink-500 text-white font-bold px-4 py-2 rounded">Save</button>
@@ -465,10 +880,28 @@ const ProjectView: React.FC = () => {
                         <input type="file" accept=".json" onChange={handleImportProject} className="hidden" />
                         インポート
                     </label>
+                    {showBulkDelete && selectedProjects.size > 0 && (
+                        <button
+                            onClick={handleBulkDeleteProjects}
+                            className="bg-red-500 hover:bg-red-600 text-white font-bold px-3 py-2 rounded text-sm"
+                        >
+                            {selectedProjects.size}個削除
+                        </button>
+                    )}
                 </div>
                 <ul className="space-y-1 max-h-32 overflow-y-auto pr-1">
                     {projects?.map(p => (
-                        <li key={p.id} className="flex items-center justify-between bg-emerald-50 p-1.5 rounded text-sm">
+                        <li key={p.id} className={`flex items-center justify-between p-1.5 rounded text-sm ${
+                            showBulkDelete && selectedProjects.has(p.id!) ? 'bg-red-100 border-2 border-red-400' : 'bg-emerald-50'
+                        }`}>
+                            {showBulkDelete && (
+                                <input
+                                    type="checkbox"
+                                    checked={selectedProjects.has(p.id!)}
+                                    onChange={() => handleToggleProjectSelection(p.id!)}
+                                    className="mr-2 w-4 h-4"
+                                />
+                            )}
                             {editingProjectId === p.id ? (
                                 <div className="flex-1 flex items-center space-x-1">
                                     <input
@@ -531,10 +964,28 @@ const ProjectView: React.FC = () => {
                         <input type="file" accept=".json" onChange={handleImportKit} className="hidden" />
                         インポート
                     </label>
+                    {showBulkDelete && selectedKits.size > 0 && (
+                        <button
+                            onClick={handleBulkDeleteKits}
+                            className="bg-red-500 hover:bg-red-600 text-white font-bold px-3 py-2 rounded text-sm"
+                        >
+                            {selectedKits.size}個削除
+                        </button>
+                    )}
                 </div>
                 <ul className="space-y-1 max-h-32 overflow-y-auto pr-1">
                      {kits?.map(k => (
-                        <li key={k.id} className="flex items-center justify-between bg-emerald-50 p-1.5 rounded text-sm">
+                        <li key={k.id} className={`flex items-center justify-between p-1.5 rounded text-sm ${
+                            showBulkDelete && selectedKits.has(k.id!) ? 'bg-red-100 border-2 border-red-400' : 'bg-emerald-50'
+                        }`}>
+                            {showBulkDelete && (
+                                <input
+                                    type="checkbox"
+                                    checked={selectedKits.has(k.id!)}
+                                    onChange={() => handleToggleKitSelection(k.id!)}
+                                    className="mr-2 w-4 h-4"
+                                />
+                            )}
                             {editingKitId === k.id ? (
                                 <div className="flex-1 flex items-center space-x-1">
                                     <input
