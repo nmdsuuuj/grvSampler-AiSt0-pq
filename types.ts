@@ -131,6 +131,8 @@ export interface AppState {
     midiLearnMode: MidiParamId | null; // null = not learning, otherwise the param ID being learned
     midiMappings: MidiMapping[]; // Array of MIDI CC to parameter mappings
     midiMappingTemplates: MidiMappingTemplate[]; // Saved MIDI mapping templates
+    bankWideMidiLearn: boolean; // If true, assign MIDI to all pads in the same bank
+    templateSwitchMappings: { cc: number; templateId: string }[]; // MIDI CC to template switch mappings (not saved in templates)
 }
 
 export enum ActionType {
@@ -189,6 +191,9 @@ export enum ActionType {
     SAVE_MIDI_MAPPING_TEMPLATE,
     LOAD_MIDI_MAPPING_TEMPLATE,
     DELETE_MIDI_MAPPING_TEMPLATE,
+    TOGGLE_BANK_WIDE_MIDI_LEARN,
+    SET_TEMPLATE_SWITCH_MAPPING,
+    REMOVE_TEMPLATE_SWITCH_MAPPING,
 }
 
 export type Action =
@@ -246,4 +251,7 @@ export type Action =
     | { type: ActionType.REMOVE_PARAM_FROM_MIDI_MAPPING, payload: { cc: number; paramId: MidiParamId } }
     | { type: ActionType.SAVE_MIDI_MAPPING_TEMPLATE, payload: { name: string } }
     | { type: ActionType.LOAD_MIDI_MAPPING_TEMPLATE, payload: { templateId: string } }
-    | { type: ActionType.DELETE_MIDI_MAPPING_TEMPLATE, payload: { templateId: string } };
+    | { type: ActionType.DELETE_MIDI_MAPPING_TEMPLATE, payload: { templateId: string } }
+    | { type: ActionType.TOGGLE_BANK_WIDE_MIDI_LEARN }
+    | { type: ActionType.SET_TEMPLATE_SWITCH_MAPPING, payload: { cc: number; templateId: string } }
+    | { type: ActionType.REMOVE_TEMPLATE_SWITCH_MAPPING, payload: { cc: number } };

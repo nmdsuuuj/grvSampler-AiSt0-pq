@@ -82,6 +82,8 @@ const initialState: AppState = {
     midiLearnMode: null,
     midiMappings: [],
     midiMappingTemplates: [],
+    bankWideMidiLearn: false,
+    templateSwitchMappings: [],
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -687,6 +689,25 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return {
                 ...state,
                 midiMappingTemplates: state.midiMappingTemplates.filter(t => t.id !== action.payload.templateId),
+            };
+        case ActionType.TOGGLE_BANK_WIDE_MIDI_LEARN:
+            return {
+                ...state,
+                bankWideMidiLearn: !state.bankWideMidiLearn,
+            };
+        case ActionType.SET_TEMPLATE_SWITCH_MAPPING: {
+            const { cc, templateId } = action.payload;
+            const newMappings = state.templateSwitchMappings.filter(m => m.cc !== cc);
+            newMappings.push({ cc, templateId });
+            return {
+                ...state,
+                templateSwitchMappings: newMappings,
+            };
+        }
+        case ActionType.REMOVE_TEMPLATE_SWITCH_MAPPING:
+            return {
+                ...state,
+                templateSwitchMappings: state.templateSwitchMappings.filter(m => m.cc !== action.payload.cc),
             };
         default:
             return state;

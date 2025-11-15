@@ -18,7 +18,7 @@ import { useSequencer } from './hooks/useSequencer';
 import { useMidi } from './hooks/useMidi';
 import { PADS_PER_BANK } from './constants';
 import SCALES from './scales';
-import { MidiMapping } from './types';
+import { MidiMapping, MidiParamId } from './types';
 
 type View = 'SAMPLE' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT';
 
@@ -133,29 +133,76 @@ const App: React.FC = () => {
       return { min, max };
     };
 
+    // Check for template switch CC first (before learn mode)
+    const templateSwitch = appState.templateSwitchMappings.find(m => m.cc === cc);
+    if (templateSwitch && normalizedValue > 0.5) { // Trigger on high value (button press)
+      appDispatch({ 
+        type: ActionType.LOAD_MIDI_MAPPING_TEMPLATE, 
+        payload: { templateId: templateSwitch.templateId } 
+      });
+      return;
+    }
+
     // If in MIDI learn mode, create a mapping
     if (appState.midiLearnMode) {
       const paramId = appState.midiLearnMode;
       const { min, max } = getParamMinMax(paramId);
       
-      // Check if this CC already has a mapping
-      const existingMapping = appState.midiMappings.find(m => m.cc === cc);
-      
-      if (existingMapping) {
-        // Add to existing CC mapping
-        appDispatch({ 
-          type: ActionType.ADD_MIDI_MAPPING_TO_CC, 
-          payload: { cc, paramId } 
-        });
+      // Check if bank-wide mode is enabled and this is a sample parameter
+      if (appState.bankWideMidiLearn && paramId.startsWith('sample.')) {
+        const [, sampleIdStr, param] = paramId.split('.');
+        const sampleId = parseInt(sampleIdStr, 10);
+        const bankIndex = Math.floor(sampleId / PADS_PER_BANK);
+        const paramName = param as 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+        
+        // Create mappings for all 8 pads in the same bank
+        const paramIds: string[] = [];
+        for (let i = 0; i < PADS_PER_BANK; i++) {
+          const padSampleId = bankIndex * PADS_PER_BANK + i;
+          paramIds.push(`sample.${padSampleId}.${paramName}` as MidiParamId);
+        }
+        
+        // Check if this CC already has a mapping
+        const existingMapping = appState.midiMappings.find(m => m.cc === cc);
+        
+        if (existingMapping) {
+          // Add all bank pads to existing CC mapping
+          paramIds.forEach(pid => {
+            appDispatch({ 
+              type: ActionType.ADD_MIDI_MAPPING_TO_CC, 
+              payload: { cc, paramId: pid as MidiParamId } 
+            });
+          });
+        } else {
+          // Create new mapping with all bank pads
+          const mapping: MidiMapping = {
+            cc,
+            paramIds: paramIds as MidiParamId[],
+            min,
+            max,
+          };
+          appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+        }
       } else {
-        // Create new mapping
-        const mapping: MidiMapping = {
-          cc,
-          paramIds: [paramId],
-          min,
-          max,
-        };
-        appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+        // Normal single parameter mapping
+        const existingMapping = appState.midiMappings.find(m => m.cc === cc);
+        
+        if (existingMapping) {
+          // Add to existing CC mapping
+          appDispatch({ 
+            type: ActionType.ADD_MIDI_MAPPING_TO_CC, 
+            payload: { cc, paramId } 
+          });
+        } else {
+          // Create new mapping
+          const mapping: MidiMapping = {
+            cc,
+            paramIds: [paramId],
+            min,
+            max,
+          };
+          appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+        }
       }
       return;
     }
