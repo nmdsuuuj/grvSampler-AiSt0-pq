@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, Dispatch } from 'react';
-import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData } from '../types';
+import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
 import SCALES from '../scales';
 
@@ -770,6 +770,87 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, keyboardOctave: action.payload };
         case ActionType.SET_SEQ_MODE:
             return { ...state, seqMode: action.payload };
+        case ActionType.LOAD_BANK_PRESET: {
+            const { bankIndex, presetData } = action.payload;
+            const { samples: presetSamples, sequences, paramLocks, grooveId, grooveDepth } = presetData;
+        
+            // 1. Update samples
+            const newSamples = [...state.samples];
+            const startSampleIndex = bankIndex * PADS_PER_BANK;
+            for (let i = 0; i < PADS_PER_BANK; i++) {
+                // Give the loaded sample the correct global ID
+                newSamples[startSampleIndex + i] = {
+                    ...presetSamples[i],
+                    id: startSampleIndex + i,
+                };
+            }
+        
+            // 2. Update pattern for the active bank
+            const activePatternId = state.activePatternIds[bankIndex];
+            const newPatterns = state.patterns.map(p => {
+                if (p.id !== activePatternId) return p;
+        
+                const newSteps = [...p.steps];
+                const newParamLocks = { ...p.paramLocks };
+                
+                // Paste sequences
+                for (let i = 0; i < PADS_PER_BANK; i++) {
+                    newSteps[startSampleIndex + i] = sequences[i];
+                }
+        
+                // Clear existing param locks for this bank first
+                for (let i = 0; i < PADS_PER_BANK; i++) {
+                     delete newParamLocks[startSampleIndex + i];
+                }
+                 // Paste new param locks, re-indexing keys from local (0-7) to global
+                for (const localIndexStr in paramLocks) {
+                    const localIndex = parseInt(localIndexStr, 10);
+                    const globalIndex = startSampleIndex + localIndex;
+                    newParamLocks[globalIndex] = paramLocks[localIndex];
+                }
+                
+                // Paste groove
+                const newGrooveIds = [...p.grooveIds];
+                const newGrooveDepths = [...p.grooveDepths];
+                newGrooveIds[bankIndex] = grooveId;
+                newGrooveDepths[bankIndex] = grooveDepth;
+                
+                return { 
+                    ...p, 
+                    steps: newSteps, 
+                    paramLocks: newParamLocks,
+                    grooveIds: newGrooveIds,
+                    grooveDepths: newGrooveDepths,
+                };
+            });
+        
+            // 3. Update live groove state to match the loaded preset
+            const newActiveGrooveIds = [...state.activeGrooveIds];
+            const newGrooveDepths = [...state.grooveDepths];
+            newActiveGrooveIds[bankIndex] = grooveId;
+            newGrooveDepths[bankIndex] = grooveDepth;
+        
+            return {
+                ...state,
+                samples: newSamples,
+                patterns: newPatterns,
+                activeGrooveIds: newActiveGrooveIds,
+                grooveDepths: newGrooveDepths,
+            };
+        }
+        case ActionType.LOAD_BANK_KIT: {
+            const { bankIndex, samples: kitSamples } = action.payload;
+            const newSamples = [...state.samples];
+            const startSampleIndex = bankIndex * PADS_PER_BANK;
+            for (let i = 0; i < PADS_PER_BANK; i++) {
+                // Give the loaded sample the correct global ID
+                newSamples[startSampleIndex + i] = {
+                    ...kitSamples[i],
+                    id: startSampleIndex + i,
+                };
+            }
+            return { ...state, samples: newSamples };
+        }
         default:
             return state;
     }

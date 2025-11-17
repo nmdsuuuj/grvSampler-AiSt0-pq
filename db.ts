@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { AppState, Sample } from './types';
+import { AppState, Sample, Step, Pattern } from './types';
 
 // We need to serialize AudioBuffer since it's not cloneable for IndexedDB.
 // We'll store the raw channel data and sample rate.
@@ -36,18 +36,51 @@ export interface SampleKit {
   samples: StorableSample[];
 }
 
-class ProjectDB extends Dexie {
-  projects!: Table<Project>;
-  sampleKits!: Table<SampleKit>;
-
-  constructor() {
-    super('GrooveSamplerDB');
-    // FIX: Cast `this` to `Dexie` to resolve a TypeScript typing issue where the inherited `version` method was not being found.
-    (this as Dexie).version(1).stores({
-      projects: '++id, name, createdAt',
-      sampleKits: '++id, name, createdAt',
-    });
-  }
+export interface BankPreset {
+  id?: number;
+  name: string;
+  createdAt: Date;
+  samples: StorableSample[]; // Array of 8 samples
+  sequences: Step[][]; // 8 lanes of steps from a pattern
+  paramLocks: Record<number, Pattern['paramLocks'][number]>; // paramLocks for those 8 lanes, keys are 0-7
+  grooveId: number;
+  grooveDepth: number;
 }
 
-export const db = new ProjectDB();
+export interface BankKit {
+  id?: number;
+  name: string;
+  createdAt: Date;
+  samples: StorableSample[]; // Array of 8 samples
+}
+
+// FIX: Refactored to use a direct Dexie instance to avoid TypeScript errors with 'this.version' in the class constructor.
+const dbInstance = new Dexie('GrooveSamplerDB') as Dexie & {
+  projects: Table<Project>;
+  sampleKits: Table<SampleKit>;
+  bankPresets: Table<BankPreset>;
+  bankKits: Table<BankKit>;
+};
+
+// Version 1 definition (for existing users)
+dbInstance.version(1).stores({
+  projects: '++id, name, createdAt',
+  sampleKits: '++id, name, createdAt',
+});
+
+// Version 2 definition (adds the new table for bank presets)
+dbInstance.version(2).stores({
+  projects: '++id, name, createdAt',
+  sampleKits: '++id, name, createdAt',
+  bankPresets: '++id, name, createdAt',
+});
+
+// Version 3 definition (adds the new table for bank kits)
+dbInstance.version(3).stores({
+  projects: '++id, name, createdAt',
+  sampleKits: '++id, name, createdAt',
+  bankPresets: '++id, name, createdAt',
+  bankKits: '++id, name, createdAt',
+});
+
+export const db = dbInstance;

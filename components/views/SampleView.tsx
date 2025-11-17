@@ -1,11 +1,11 @@
 
-
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Action, ActionType, PlaybackParams, Sample } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
 import { PADS_PER_BANK } from '../../constants';
 import BankSelector from '../BankSelector';
+import { db, BankKit, StorableSample } from '../../db';
 
 interface SampleViewProps {
     playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
@@ -76,6 +76,38 @@ const encodeWav = (audioBuffer: AudioBuffer): Blob => {
     return new Blob([view], { type: 'audio/wav' });
 };
 
+const audioBufferToStorable = (buffer: AudioBuffer | null): StorableSample['bufferData'] => {
+    if (!buffer) return null;
+    const channelData: Float32Array[] = [];
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+        channelData.push(buffer.getChannelData(i));
+    }
+    return {
+        channelData,
+        sampleRate: buffer.sampleRate,
+        length: buffer.length,
+        numberOfChannels: buffer.numberOfChannels,
+    };
+};
+
+const storableToAudioBuffer = (storable: StorableSample['bufferData'] | null, audioContext: AudioContext): AudioBuffer | null => {
+    if (!storable) return null;
+    try {
+        const buffer = audioContext.createBuffer(
+            storable.numberOfChannels,
+            storable.length,
+            storable.sampleRate
+        );
+        for (let i = 0; i < storable.numberOfChannels; i++) {
+            buffer.copyToChannel(storable.channelData[i], i);
+        }
+        return buffer;
+    } catch (e) {
+        console.error("Error creating AudioBuffer from stored data:", e);
+        return null;
+    }
+};
+
 const SampleView: React.FC<SampleViewProps> = ({ 
     playSample, startRecording, stopRecording, loadSampleFromBlob,
     activeSampleId, samples, activeSampleBank, isRecording, audioContext, isArmed, recordingThreshold, sampleClipboard,
@@ -84,6 +116,70 @@ const SampleView: React.FC<SampleViewProps> = ({
     const activeSample = samples[activeSampleId];
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isSamplingMode, setIsSamplingMode] = useState(true);
+
+    const [bankKitName, setBankKitName] = useState('New Bank Kit');
+    const [bankKits, setBankKits] = useState<BankKit[]>([]);
+
+    const refreshBankKits = useCallback(async () => {
+        const bKits = await db.bankKits.orderBy('createdAt').reverse().toArray();
+        setBankKits(bKits);
+    }, []);
+
+    useEffect(() => {
+        refreshBankKits();
+    }, [refreshBankKits]);
+    
+    const samplesToStorable = (samplesToStore: Sample[]): StorableSample[] => {
+        return samplesToStore.map(s => ({
+            ...s,
+            buffer: undefined,
+            bufferData: audioBufferToStorable(s.buffer),
+        }));
+    };
+
+    const handleSaveBankKit = async () => {
+        if (!bankKitName.trim()) {
+            alert('バンクキット名を入力してください。');
+            return;
+        }
+        
+        const startSampleId = activeSampleBank * PADS_PER_BANK;
+        const endSampleId = startSampleId + PADS_PER_BANK;
+        const bankSamples = samples.slice(startSampleId, endSampleId);
+
+        const kit: BankKit = {
+            name: bankKitName.trim(),
+            createdAt: new Date(),
+            samples: samplesToStorable(bankSamples),
+        };
+        await db.bankKits.add(kit);
+        alert(`バンクキット「${kit.name}」を保存しました。`);
+        refreshBankKits();
+    };
+
+    const handleLoadBankKit = useCallback(async (kitId: number) => {
+        if (!audioContext) return;
+        const kit = await db.bankKits.get(kitId);
+        if (!kit) return;
+        
+        const newSamples: Sample[] = kit.samples.map(s => ({ ...s, buffer: storableToAudioBuffer(s.bufferData, audioContext) }));
+
+        dispatch({ 
+            type: ActionType.LOAD_BANK_KIT, 
+            payload: {
+                bankIndex: activeSampleBank,
+                samples: newSamples
+            }
+        });
+        alert(`バンクキット「${kit.name}」をバンク ${String.fromCharCode(65 + activeSampleBank)} に読み込みました。`);
+    }, [audioContext, activeSampleBank, dispatch]);
+
+    const handleDeleteBankKit = async (kitId: number) => {
+        if (window.confirm('このバンクキットを削除しますか？')) {
+            await db.bankKits.delete(kitId);
+            refreshBankKits();
+        }
+    };
 
     const handleParamChange = useCallback((param: 'pitch' | 'start' | 'volume' | 'decay' | 'lpFreq' | 'hpFreq', value: number) => {
         dispatch({
@@ -186,7 +282,7 @@ const SampleView: React.FC<SampleViewProps> = ({
                 })}
             </div>
 
-            <div className="bg-white shadow-md p-2 rounded-lg flex flex-col justify-around flex-grow">
+            <div className="bg-white shadow-md p-2 rounded-lg flex flex-col justify-between flex-grow">
                 {isSamplingMode ? (
                     <div className="space-y-2">
                         <div className="grid grid-cols-5 gap-1 text-center">
@@ -199,20 +295,37 @@ const SampleView: React.FC<SampleViewProps> = ({
                         <div>
                             <Fader label="Threshold" value={Math.pow(recordingThreshold, 1/4)} displayValue={recordingThreshold} onChange={handleThresholdChange} min={0} max={1} step={0.01} defaultValue={Math.pow(0.02, 1/4)} />
                         </div>
+                         <div className="border-t-2 border-emerald-100 mt-2 pt-2 space-y-2">
+                            <h3 className="font-bold text-slate-700 text-sm text-center">バンクキット (バンク {String.fromCharCode(65 + activeSampleBank)} のサンプル)</h3>
+                            <div className="flex space-x-2">
+                                <input type="text" value={bankKitName} onChange={(e) => setBankKitName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm" placeholder="バンクキット名" />
+                                <button onClick={handleSaveBankKit} className="bg-amber-400 hover:bg-amber-500 text-white font-bold px-4 py-2 rounded text-sm whitespace-nowrap">キット保存</button>
+                            </div>
+                            <ul className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                                {bankKits?.map(bk => (
+                                    <li key={bk.id} className="flex items-center justify-between bg-emerald-50 p-1.5 rounded text-sm">
+                                        <div><p className="font-semibold">{bk.name}</p><p className="text-xs text-slate-500">{bk.createdAt.toLocaleDateString()}</p></div>
+                                        <div className="space-x-1">
+                                            <button onClick={() => handleLoadBankKit(bk.id!)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-xs">読込</button>
+                                            <button onClick={() => handleDeleteBankKit(bk.id!)} className="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-xs">削除</button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-2">
                          <Fader label="LP" value={logToLinear(activeSample.lpFreq)} onChange={(v) => handleParamChange('lpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={1} displayValue={activeSample.lpFreq} displayPrecision={0} />
                          <Fader label="HP" value={logToLinear(activeSample.hpFreq)} onChange={(v) => handleParamChange('hpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={0} displayValue={activeSample.hpFreq} displayPrecision={0} />
+                         <div className="grid grid-cols-2 gap-x-2 gap-y-1 pt-2">
+                            <Fader label="Pitch" value={activeSample.pitch} onChange={(val) => handleParamChange('pitch', val)} min={-24} max={24} step={0.01} defaultValue={0} />
+                            <Fader label="Start" value={activeSample.start} onChange={(val) => handleParamChange('start', val)} min={0} max={1} step={0.001} defaultValue={0} />
+                            <Fader label="Decay" value={activeSample.decay} onChange={(val) => handleParamChange('decay', val)} min={0.01} max={1} step={0.001} defaultValue={1} />
+                            <Fader label="Vol" value={activeSample.volume} onChange={(val) => handleParamChange('volume', val)} min={0} max={1} step={0.01} defaultValue={1} />
+                        </div>
                     </div>
                 )}
-                
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-                    <Fader label="Pitch" value={activeSample.pitch} onChange={(val) => handleParamChange('pitch', val)} min={-24} max={24} step={0.01} defaultValue={0} />
-                    <Fader label="Start" value={activeSample.start} onChange={(val) => handleParamChange('start', val)} min={0} max={1} step={0.001} defaultValue={0} />
-                    <Fader label="Decay" value={activeSample.decay} onChange={(val) => handleParamChange('decay', val)} min={0.01} max={1} step={0.001} defaultValue={1} />
-                    <Fader label="Vol" value={activeSample.volume} onChange={(val) => handleParamChange('volume', val)} min={0} max={1} step={0.01} defaultValue={1} />
-                </div>
             </div>
         </div>
     );

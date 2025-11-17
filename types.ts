@@ -73,6 +73,14 @@ export interface BankClipboardData {
     grooveDepth: number;
 }
 
+export interface BankPresetData {
+  samples: Sample[]; // Array of 8 samples with AudioBuffers
+  sequences: Step[][];
+  paramLocks: Record<number, Pattern['paramLocks'][number]>;
+  grooveId: number;
+  grooveDepth: number;
+}
+
 
 export interface AppState {
     audioContext: AudioContext | null;
@@ -166,6 +174,8 @@ export enum ActionType {
     PASTE_BANK,
     SET_KEYBOARD_OCTAVE,
     SET_SEQ_MODE,
+    LOAD_BANK_PRESET,
+    LOAD_BANK_KIT,
 }
 
 export type Action =
@@ -218,4 +228,6 @@ export type Action =
     | { type: ActionType.COPY_BANK }
     | { type: ActionType.PASTE_BANK }
     | { type: ActionType.SET_KEYBOARD_OCTAVE, payload: number }
-    | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' };
+    | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' }
+    | { type: ActionType.LOAD_BANK_PRESET, payload: { bankIndex: number, presetData: BankPresetData } }
+    | { type: ActionType.LOAD_BANK_KIT, payload: { bankIndex: number, samples: Sample[] } };

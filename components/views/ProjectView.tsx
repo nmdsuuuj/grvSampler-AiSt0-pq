@@ -1,7 +1,9 @@
+
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { AppContext } from '../../context/AppContext';
-import { db, Project, StorableSample, SampleKit } from '../../db';
-import { ActionType, AppState, Sample } from '../../types';
+import { db, Project, StorableSample, SampleKit, BankPreset } from '../../db';
+import { ActionType, AppState, Sample, BankPresetData } from '../../types';
+import { PADS_PER_BANK, TOTAL_SAMPLES } from '../../constants';
 
 const audioBufferToStorable = (buffer: AudioBuffer | null): StorableSample['bufferData'] => {
     if (!buffer) return null;
@@ -48,58 +50,91 @@ Groove Sampler 日本語マニュアル
 ### グローバルコントロール
 (これらのショートカットは、どの画面でも機能します)
 
-キー | 機能                 | 説明
-------------------------------------------------------------------
-A    | オクターブDOWN       | 演奏用キーボードのオクターブを1つ下げます。
-F    | オクターブUP         | 演奏用キーボードのオクターブを1つ上げます。
-K    | ルート音DOWN         | 曲のキー（ルート音）を半音下げます。
-L    | ルート音UP           | 曲のキー（ルート音）を半音上げます。
-/    | スケール切り替え(UP) | スケールのリストを1つ上に移動します。
-\\   | スケール切り替え(DOWN)| スケールのリストを1つ下に移動します。
-
+| キー | 機能 | 説明 |
+| :--- | :--- | :--- |
+| \`A\` | オクターブDOWN | 演奏用キーボードのオクターブを1つ下げます。 |
+| \`F\` | オクターブUP | 演奏用キーボードのオクターブを1つ上げます。 |
+| \`K\` | ルート音DOWN | 曲のキー（ルート音）を半音下げます。 |
+| \`L\` | ルート音UP | 曲のキー（ルート音）を半音上げます。 |
+| \`/\` | スケール切り替え (UP) | スケール（音階）のリストを1つ上に移動します。 |
+| \`\\\` | スケール切り替え (DOWN) | スケール（音階）のリストを1つ下に移動します。 |
 
 ### パッド & バンク操作
 
-キー      | 機能                  | 説明
-------------------------------------------------------------------
-1 - 8     | パッドトリガー & 選択 | 現在選択されているバンクの対応するパッドの音を鳴らし、選択します。
-9, 0, -,^ | バンク切り替え        | それぞれバンクA, B, C, Dに切り替えます。
-
+| キー | 機能 | 説明 |
+| :--- | :--- | :--- |
+| \`1\` - \`8\` | パッドのトリガー & 選択 | 現在選択されているバンクの対応するサンプルパッドの音を鳴らし、そのパッドを選択状態にします。 |
+| \`9\`, \`0\`, \`-\`, \`^\` | バンク切り替え | それぞれバンクA, B, C, Dに切り替えます。 |
 
 ### ノート演奏 & リアルタイムレコーディング
-(PCキーボードの下2段が鍵盤になります)
 
-キー                      | 鍵盤
-------------------------------------------------------------------
-z, x, c, v, b, n, m, ,    | 白鍵
-s, d, g, h, j             | 黒鍵
+PCキーボードの下2段は、SEQ画面で選択されたサンプルを演奏するための鍵盤として機能します。
 
-- スケール連動: 演奏はSEQ画面で設定されたキーとスケールに自動でマッピングされます。
-- リアルタイムREC: SEQ画面の'REC'モード中に再生すると、演奏がパターンに記録されます。
+| キー | 鍵盤 |
+| :--- | :--- |
+| \`z\`, \`x\`, \`c\`, \`v\`, \`b\`, \`n\`, \`m\`, \`,\` | 白鍵 |
+| \`s\`, \`d\`, \`g\`, \`h\`, \`j\` | 黒鍵 |
 
+- **スケール連動:** このキーボードは、SEQ画面で設定されたキーとスケール（音階）に自動的にマッピングされます。これにより、スケールに沿った音楽的な演奏が直感的に行えます。
+- **リアルタイムREC:** SEQ画面で\`REC\`モードが有効な時にシーケンサーを再生すると、演奏したノートが現在のパターンに直接記録されます。
 
 ### SAMPLE画面 ショートカット
-(SAMPLE画面がアクティブな時のみ機能します)
 
-キー | 機能             | 説明
-------------------------------------------------------------------
-Q    | 録音 ARM / STOP  | サンプルの録音を開始（ARM）、または停止します。
-W    | サンプルコピー   | 現在選択されているサンプルをコピーします。
-E    | サンプルペースト | コピーしたサンプルを現在のパッドに貼り付けます。
+これらのショートカットは、SAMPLE画面がアクティブな時のみ機能します。
+
+| キー | 機能 | 説明 |
+| :--- | :--- | :--- |
+| \`Q\` | 録音 ARM / STOP | サンプルの録音を開始（ARM）、または停止します。 |
+| \`W\` | サンプルコピー | 現在選択されているサンプルをクリップボードにコピーします。 |
+| \`E\` | サンプルペースト | クリップボードのサンプルを現在選択されているパッドに貼り付けます。 |
 `;
 
+    const formattedContent = manualContent
+        .replace(/\| :--- \| :--- \| :--- \|/g, '')
+        .replace(/\|/g, ' | ')
+        .replace(/`/g, '')
+        .split('\n')
+        .map((line, index) => {
+            if (line.startsWith('## ')) return <h2 key={index} className="text-lg font-bold mt-4 mb-2">{line.substring(3)}</h2>;
+            if (line.startsWith('### ')) return <h3 key={index} className="text-md font-semibold mt-3 mb-1">{line.substring(4)}</h3>;
+            if (line.startsWith('---')) return <hr key={index} className="my-4 border-emerald-200" />;
+            if (line.trim().startsWith('|')) { // Table row
+                return (
+                    <tr key={index} className="border-b border-emerald-100">
+                        {line.split(' | ').slice(1, -1).map((cell, cellIndex) => (
+                            <td key={cellIndex} className="p-2 text-sm">{cell.trim()}</td>
+                        ))}
+                    </tr>
+                );
+            }
+            if (line.trim().startsWith('- **')) {
+                return <li key={index} className="ml-5 list-disc">{line.replace('- **', '').replace('**:', ':**')}</li>
+            }
+            return <p key={index} className="mb-2 text-sm">{line}</p>;
+        });
+
+    // Group table rows
+    const finalContent = [];
+    let tableRows = [];
+    for (const item of formattedContent) {
+        if (item.type === 'tr') {
+            tableRows.push(item);
+        } else {
+            if (tableRows.length > 0) {
+                finalContent.push(<table key={`table-${finalContent.length}`} className="w-full text-left table-auto my-2"><tbody className="bg-emerald-50/50">{tableRows}</tbody></table>);
+                tableRows = [];
+            }
+            finalContent.push(item);
+        }
+    }
+    if (tableRows.length > 0) {
+         finalContent.push(<table key={`table-${finalContent.length}`} className="w-full text-left table-auto my-2"><tbody className="bg-emerald-50/50">{tableRows}</tbody></table>);
+    }
+
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-            <div className="bg-white rounded-lg shadow-xl p-4 w-11/12 max-w-md" onClick={e => e.stopPropagation()}>
-                <pre className="text-xs font-mono bg-emerald-50 p-3 rounded-md max-h-96 overflow-y-auto whitespace-pre-wrap">
-                    {manualContent.trim()}
-                </pre>
-                <button
-                    onClick={onClose}
-                    className="mt-4 w-full bg-pink-400 hover:bg-pink-500 text-white font-bold py-2 rounded"
-                >
-                    閉じる
-                </button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+            <div className="bg-white rounded-lg shadow-xl p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                {finalContent}
             </div>
         </div>
     );
@@ -108,145 +143,256 @@ E    | サンプルペースト | コピーしたサンプルを現在のパッ�
 
 const ProjectView: React.FC = () => {
     const { state, dispatch } = useContext(AppContext);
-    const [projectName, setProjectName] = useState('New Project');
-    const [kitName, setKitName] = useState('New Kit');
+    const { audioContext, samples, activeSampleBank, activePatternIds, patterns } = state;
+
     const [projects, setProjects] = useState<Project[]>([]);
-    const [kits, setKits] = useState<SampleKit[]>([]);
+    const [projectName, setProjectName] = useState('New Project');
+    const [sampleKits, setSampleKits] = useState<SampleKit[]>([]);
+    const [sampleKitName, setSampleKitName] = useState('New Sample Kit');
+    const [bankPresets, setBankPresets] = useState<BankPreset[]>([]);
+    const [bankPresetName, setBankPresetName] = useState('New Bank Preset');
     const [isManualOpen, setIsManualOpen] = useState(false);
 
-    const refreshData = useCallback(async () => {
+    const refreshProjects = useCallback(async () => {
         const projs = await db.projects.orderBy('createdAt').reverse().toArray();
         setProjects(projs);
-        const sampleKits = await db.sampleKits.orderBy('createdAt').reverse().toArray();
-        setKits(sampleKits);
+    }, []);
+
+    const refreshSampleKits = useCallback(async () => {
+        const sKits = await db.sampleKits.orderBy('createdAt').reverse().toArray();
+        setSampleKits(sKits);
+    }, []);
+
+    const refreshBankPresets = useCallback(async () => {
+        const bPresets = await db.bankPresets.orderBy('createdAt').reverse().toArray();
+        setBankPresets(bPresets);
     }, []);
 
     useEffect(() => {
-        refreshData();
-    }, [refreshData]);
-    
-    const samplesToStorable = (samples: Sample[]): StorableSample[] => {
-        return samples.map(s => ({
+        refreshProjects();
+        refreshSampleKits();
+        refreshBankPresets();
+    }, [refreshProjects, refreshSampleKits, refreshBankPresets]);
+
+    const samplesToStorable = (samplesToStore: Sample[]): StorableSample[] => {
+        return samplesToStore.map(s => ({
             ...s,
             buffer: undefined,
             bufferData: audioBufferToStorable(s.buffer),
         }));
     };
 
+    const storableToSamples = useCallback((storableSamples: StorableSample[]): Sample[] => {
+        if (!audioContext) return [];
+        return storableSamples.map(s => ({
+            ...s,
+            buffer: storableToAudioBuffer(s.bufferData, audioContext),
+        }));
+    }, [audioContext]);
+
     const handleSaveProject = async () => {
         if (!projectName.trim()) {
-            alert('Please enter a project name.');
+            alert('プロジェクト名を入力してください。');
             return;
         }
-        // FIX: Renamed `currentStep` to `currentSteps` in destructuring to match the `AppState` interface and correctly exclude it from the saved project state.
-        const { audioContext, isInitialized, isPlaying, isRecording, currentSteps, samples, grooves, ...restOfState } = state;
+        const stateToSave = { ...state };
+        // Exclude non-serializable or transient properties
+        delete (stateToSave as Partial<AppState>).audioContext;
+        delete (stateToSave as Partial<AppState>).isInitialized;
+        delete (stateToSave as Partial<AppState>).isPlaying;
+        delete (stateToSave as Partial<AppState>).isRecording;
+        delete (stateToSave as Partial<AppState>).isArmed;
+        delete (stateToSave as Partial<AppState>).isMasterRecording;
+        delete (stateToSave as Partial<AppState>).isMasterRecArmed;
+        delete (stateToSave as Partial<AppState>).currentSteps;
+        delete (stateToSave as Partial<AppState>).samples;
+        delete (stateToSave as Partial<AppState>).grooves;
+        
         const project: Project = {
             name: projectName.trim(),
             createdAt: new Date(),
-            state: restOfState,
-            samples: samplesToStorable(samples),
+            state: stateToSave,
+            samples: samplesToStorable(state.samples),
         };
         await db.projects.add(project);
-        alert(`Project "${project.name}" saved!`);
-        refreshData();
+        alert(`プロジェクト「${project.name}」を保存しました。`);
+        refreshProjects();
     };
 
     const handleLoadProject = useCallback(async (projectId: number) => {
-        if (!state.audioContext) return;
         const project = await db.projects.get(projectId);
-        if (!project) return;
-    
-        const newSamples: Sample[] = project.samples.map(s => ({ ...s, buffer: storableToAudioBuffer(s.bufferData, state.audioContext!) }));
-        const stateToLoad: Partial<AppState> = { ...project.state, samples: newSamples };
-        dispatch({ type: ActionType.LOAD_PROJECT_STATE, payload: stateToLoad });
-        alert(`Project "${project.name}" loaded!`);
-    }, [state.audioContext, dispatch]);
+        if (project && audioContext) {
+            const loadedSamples = storableToSamples(project.samples);
+            const loadedState = { ...project.state, samples: loadedSamples };
+            dispatch({ type: ActionType.LOAD_PROJECT_STATE, payload: loadedState });
+            alert(`プロジェクト「${project.name}」を読み込みました。`);
+        }
+    }, [audioContext, dispatch, storableToSamples]);
 
     const handleDeleteProject = async (projectId: number) => {
-        if (window.confirm('Delete this project?')) {
+        if (window.confirm('このプロジェクトを削除しますか？この操作は元に戻せません。')) {
             await db.projects.delete(projectId);
-            refreshData();
+            refreshProjects();
         }
     };
     
-    const handleSaveKit = async () => {
-        if (!kitName.trim()) {
-            alert('Please enter a kit name.');
+    const handleSaveSampleKit = async () => {
+        if (!sampleKitName.trim()) {
+            alert('サンプルキット名を入力してください。');
             return;
         }
         const kit: SampleKit = {
-            name: kitName.trim(),
+            name: sampleKitName.trim(),
             createdAt: new Date(),
-            samples: samplesToStorable(state.samples),
+            samples: samplesToStorable(samples),
         };
         await db.sampleKits.add(kit);
-        alert(`Kit "${kit.name}" saved!`);
-        refreshData();
+        alert(`サンプルキット「${kit.name}」を保存しました。`);
+        refreshSampleKits();
     };
-    
-    const handleLoadKit = useCallback(async (kitId: number) => {
-        if (!state.audioContext) return;
+
+    const handleLoadSampleKit = useCallback(async (kitId: number) => {
         const kit = await db.sampleKits.get(kitId);
-        if (!kit) return;
-        
-        const newSamples: Sample[] = kit.samples.map(s => ({ ...s, buffer: storableToAudioBuffer(s.bufferData, state.audioContext!) }));
-        dispatch({ type: ActionType.SET_SAMPLES, payload: newSamples });
-        alert(`Kit "${kit.name}" loaded!`);
-    }, [state.audioContext, dispatch]);
-    
-    const handleDeleteKit = async (kitId: number) => {
-        if (window.confirm('Delete this kit?')) {
+        if (kit) {
+            const loadedSamples = storableToSamples(kit.samples);
+            dispatch({ type: ActionType.SET_SAMPLES, payload: loadedSamples });
+            alert(`サンプルキット「${kit.name}」を読み込みました。`);
+        }
+    }, [dispatch, storableToSamples]);
+
+    const handleDeleteSampleKit = async (kitId: number) => {
+        if (window.confirm('このサンプルキットを削除しますか？')) {
             await db.sampleKits.delete(kitId);
-            refreshData();
+            refreshSampleKits();
         }
     };
 
+    const handleSaveBankPreset = async () => {
+        if (!bankPresetName.trim()) {
+            alert('バンクプリセット名を入力してください。');
+            return;
+        }
+        const startSampleId = activeSampleBank * PADS_PER_BANK;
+        const endSampleId = startSampleId + PADS_PER_BANK;
+        const bankSamples = samples.slice(startSampleId, endSampleId);
+
+        const activePatternId = activePatternIds[activeSampleBank];
+        const pattern = patterns.find(p => p.id === activePatternId);
+        if (!pattern) return;
+
+        const bankSequences = pattern.steps.slice(startSampleId, endSampleId);
+        const bankParamLocks: BankPreset['paramLocks'] = {};
+        for (let i = startSampleId; i < endSampleId; i++) {
+            if (pattern.paramLocks[i]) {
+                bankParamLocks[i - startSampleId] = pattern.paramLocks[i];
+            }
+        }
+
+        const preset: BankPreset = {
+            name: bankPresetName.trim(),
+            createdAt: new Date(),
+            samples: samplesToStorable(bankSamples),
+            sequences: JSON.parse(JSON.stringify(bankSequences)),
+            paramLocks: JSON.parse(JSON.stringify(bankParamLocks)),
+            grooveId: pattern.grooveIds[activeSampleBank],
+            grooveDepth: pattern.grooveDepths[activeSampleBank],
+        };
+
+        await db.bankPresets.add(preset);
+        alert(`バンクプリセット「${preset.name}」を保存しました。`);
+        refreshBankPresets();
+    };
+
+    const handleLoadBankPreset = useCallback(async (presetId: number) => {
+        if (!audioContext) return;
+        const preset = await db.bankPresets.get(presetId);
+        if (!preset) return;
+
+        const loadedSamples = storableToSamples(preset.samples);
+
+        const presetData: BankPresetData = {
+            samples: loadedSamples,
+            sequences: preset.sequences,
+            paramLocks: preset.paramLocks,
+            grooveId: preset.grooveId,
+            grooveDepth: preset.grooveDepth
+        };
+
+        dispatch({
+            type: ActionType.LOAD_BANK_PRESET,
+            payload: { bankIndex: activeSampleBank, presetData }
+        });
+
+        alert(`プリセット「${preset.name}」をバンク ${String.fromCharCode(65 + activeSampleBank)} に読み込みました。`);
+
+    }, [audioContext, activeSampleBank, dispatch, storableToSamples]);
+    
+    const handleDeleteBankPreset = async (presetId: number) => {
+        if (window.confirm('このバンクプリセットを削除しますか？')) {
+            await db.bankPresets.delete(presetId);
+            refreshBankPresets();
+        }
+    };
+
+    const renderListItem = (
+        item: { id?: number; name: string; createdAt: Date }, 
+        onLoad: (id: number) => void, 
+        onDelete: (id: number) => void
+    ) => (
+        <li key={item.id} className="flex items-center justify-between bg-emerald-50 p-1.5 rounded text-sm">
+            <div>
+                <p className="font-semibold">{item.name}</p>
+                <p className="text-xs text-slate-500">{item.createdAt.toLocaleDateString()}</p>
+            </div>
+            <div className="space-x-1">
+                <button onClick={() => onLoad(item.id!)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-xs">読込</button>
+                <button onClick={() => onDelete(item.id!)} className="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-xs">削除</button>
+            </div>
+        </li>
+    );
+
     return (
-        <div className="flex flex-col h-full p-2 space-y-2 overflow-y-auto">
-             {isManualOpen && <ManualModal onClose={() => setIsManualOpen(false)} />}
-            <div className="flex justify-between items-center flex-shrink-0">
-                 <h2 className="text-xl font-bold text-center">Project & Kit Management</h2>
-                 <button
-                    onClick={() => setIsManualOpen(true)}
-                    className="bg-sky-400 hover:bg-sky-500 text-white text-xs font-bold px-3 py-2 rounded"
-                >
+        <div className="p-2 space-y-3 h-full overflow-y-auto">
+            {isManualOpen && <ManualModal onClose={() => setIsManualOpen(false)} />}
+            
+            <div className="bg-white p-2 rounded-lg shadow-md space-y-2">
+                <h3 className="font-bold text-slate-700 text-center mb-1">プロジェクト管理</h3>
+                <div className="flex space-x-2">
+                    <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-sky-400 text-sm" placeholder="プロジェクト名" />
+                    <button onClick={handleSaveProject} className="bg-sky-500 hover:bg-sky-600 text-white font-bold px-4 py-2 rounded text-sm whitespace-nowrap">保存</button>
+                </div>
+                <ul className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                    {projects.map(p => renderListItem(p, handleLoadProject, handleDeleteProject))}
+                </ul>
+            </div>
+            
+             <div className="bg-white p-2 rounded-lg shadow-md space-y-2">
+                <h3 className="font-bold text-slate-700 text-center mb-1">バンクプリセット</h3>
+                <p className="text-xs text-slate-500 text-center -mt-1 mb-2">現在のバンクのサンプル(8個)とシーケンスを保存/読込します。</p>
+                <div className="flex space-x-2">
+                    <input type="text" value={bankPresetName} onChange={(e) => setBankPresetName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-pink-400 text-sm" placeholder="プリセット名" />
+                    <button onClick={handleSaveBankPreset} className="bg-pink-500 hover:bg-pink-600 text-white font-bold px-4 py-2 rounded text-sm whitespace-nowrap">保存</button>
+                </div>
+                <ul className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                    {bankPresets.map(p => renderListItem(p, handleLoadBankPreset, handleDeleteBankPreset))}
+                </ul>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg shadow-md space-y-2">
+                <h3 className="font-bold text-slate-700 text-center mb-1">サンプルキット (全32パッド)</h3>
+                <div className="flex space-x-2">
+                    <input type="text" value={sampleKitName} onChange={(e) => setSampleKitName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-emerald-400 text-sm" placeholder="サンプルキット名" />
+                    <button onClick={handleSaveSampleKit} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-4 py-2 rounded text-sm whitespace-nowrap">保存</button>
+                </div>
+                <ul className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                    {sampleKits.map(k => renderListItem(k, handleLoadSampleKit, handleDeleteSampleKit))}
+                </ul>
+            </div>
+            
+            <div className="bg-white p-2 rounded-lg shadow-md">
+                <button onClick={() => setIsManualOpen(true)} className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 rounded">
                     マニュアル
                 </button>
-            </div>
-
-
-            {/* Project Management */}
-            <div className="bg-white shadow-md p-3 rounded-lg space-y-2">
-                <h3 className="font-bold text-slate-700">Project</h3>
-                <div className="flex space-x-2">
-                    <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-pink-400" placeholder="Project Name" />
-                    <button onClick={handleSaveProject} className="bg-pink-400 hover:bg-pink-500 text-white font-bold px-4 py-2 rounded">Save</button>
-                </div>
-                <ul className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                    {projects?.map(p => (
-                        <li key={p.id} className="flex items-center justify-between bg-emerald-50 p-1.5 rounded text-sm">
-                            <div><p className="font-semibold">{p.name}</p><p className="text-xs text-slate-500">{p.createdAt.toLocaleDateString()}</p></div>
-                            <div className="space-x-1"><button onClick={() => handleLoadProject(p.id!)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-xs">Load</button><button onClick={() => handleDeleteProject(p.id!)} className="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-xs">Del</button></div>
-                        </li>
-                    ))}
-                </ul>
-            </div>
-
-            {/* Sample Kit Management */}
-            <div className="bg-white shadow-md p-3 rounded-lg space-y-2">
-                <h3 className="font-bold text-slate-700">Sample Kit</h3>
-                 <div className="flex space-x-2">
-                    <input type="text" value={kitName} onChange={(e) => setKitName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="Kit Name" />
-                    <button onClick={handleSaveKit} className="bg-sky-400 hover:bg-sky-500 text-white font-bold px-4 py-2 rounded">Save Kit</button>
-                </div>
-                <ul className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                     {kits?.map(k => (
-                        <li key={k.id} className="flex items-center justify-between bg-emerald-50 p-1.5 rounded text-sm">
-                            <div><p className="font-semibold">{k.name}</p><p className="text-xs text-slate-500">{k.createdAt.toLocaleDateString()}</p></div>
-                            <div className="space-x-1"><button onClick={() => handleLoadKit(k.id!)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-xs">Load</button><button onClick={() => handleDeleteKit(k.id!)} className="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-xs">Del</button></div>
-                        </li>
-                    ))}
-                </ul>
             </div>
         </div>
     );
