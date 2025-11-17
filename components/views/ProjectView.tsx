@@ -35,12 +35,84 @@ const storableToAudioBuffer = (storable: StorableSample['bufferData'] | null, au
     }
 };
 
+const ManualModal = ({ onClose }: { onClose: () => void }) => {
+    const manualContent = `
+Groove Sampler 日本語マニュアル
+
+このドキュメントでは、アプリの基本的な操作とPCキーボードでのショートカットについて説明します。
+
+------------------------------------------------------------------
+
+## PCキーボードショートカット
+
+### グローバルコントロール
+(これらのショートカットは、どの画面でも機能します)
+
+キー | 機能                 | 説明
+------------------------------------------------------------------
+A    | オクターブDOWN       | 演奏用キーボードのオクターブを1つ下げます。
+F    | オクターブUP         | 演奏用キーボードのオクターブを1つ上げます。
+K    | ルート音DOWN         | 曲のキー（ルート音）を半音下げます。
+L    | ルート音UP           | 曲のキー（ルート音）を半音上げます。
+/    | スケール切り替え(UP) | スケールのリストを1つ上に移動します。
+\\   | スケール切り替え(DOWN)| スケールのリストを1つ下に移動します。
+
+
+### パッド & バンク操作
+
+キー      | 機能                  | 説明
+------------------------------------------------------------------
+1 - 8     | パッドトリガー & 選択 | 現在選択されているバンクの対応するパッドの音を鳴らし、選択します。
+9, 0, -,^ | バンク切り替え        | それぞれバンクA, B, C, Dに切り替えます。
+
+
+### ノート演奏 & リアルタイムレコーディング
+(PCキーボードの下2段が鍵盤になります)
+
+キー                      | 鍵盤
+------------------------------------------------------------------
+z, x, c, v, b, n, m, ,    | 白鍵
+s, d, g, h, j             | 黒鍵
+
+- スケール連動: 演奏はSEQ画面で設定されたキーとスケールに自動でマッピングされます。
+- リアルタイムREC: SEQ画面の'REC'モード中に再生すると、演奏がパターンに記録されます。
+
+
+### SAMPLE画面 ショートカット
+(SAMPLE画面がアクティブな時のみ機能します)
+
+キー | 機能             | 説明
+------------------------------------------------------------------
+Q    | 録音 ARM / STOP  | サンプルの録音を開始（ARM）、または停止します。
+W    | サンプルコピー   | 現在選択されているサンプルをコピーします。
+E    | サンプルペースト | コピーしたサンプルを現在のパッドに貼り付けます。
+`;
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-white rounded-lg shadow-xl p-4 w-11/12 max-w-md" onClick={e => e.stopPropagation()}>
+                <pre className="text-xs font-mono bg-emerald-50 p-3 rounded-md max-h-96 overflow-y-auto whitespace-pre-wrap">
+                    {manualContent.trim()}
+                </pre>
+                <button
+                    onClick={onClose}
+                    className="mt-4 w-full bg-pink-400 hover:bg-pink-500 text-white font-bold py-2 rounded"
+                >
+                    閉じる
+                </button>
+            </div>
+        </div>
+    );
+};
+
+
 const ProjectView: React.FC = () => {
     const { state, dispatch } = useContext(AppContext);
     const [projectName, setProjectName] = useState('New Project');
     const [kitName, setKitName] = useState('New Kit');
     const [projects, setProjects] = useState<Project[]>([]);
     const [kits, setKits] = useState<SampleKit[]>([]);
+    const [isManualOpen, setIsManualOpen] = useState(false);
 
     const refreshData = useCallback(async () => {
         const projs = await db.projects.orderBy('createdAt').reverse().toArray();
@@ -131,7 +203,17 @@ const ProjectView: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full p-2 space-y-2 overflow-y-auto">
-            <h2 className="text-xl font-bold text-center flex-shrink-0">Project & Kit Management</h2>
+             {isManualOpen && <ManualModal onClose={() => setIsManualOpen(false)} />}
+            <div className="flex justify-between items-center flex-shrink-0">
+                 <h2 className="text-xl font-bold text-center">Project & Kit Management</h2>
+                 <button
+                    onClick={() => setIsManualOpen(true)}
+                    className="bg-sky-400 hover:bg-sky-500 text-white text-xs font-bold px-3 py-2 rounded"
+                >
+                    マニュアル
+                </button>
+            </div>
+
 
             {/* Project Management */}
             <div className="bg-white shadow-md p-3 rounded-lg space-y-2">
