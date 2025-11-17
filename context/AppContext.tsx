@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, Dispatch } from 'react';
-import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData } from '../types';
+import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData, Synth, SynthPreset, ModMatrix, ModPatch } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
 import SCALES from '../scales';
 
@@ -11,6 +11,18 @@ const createEmptySteps = (): Step[][] =>
             velocity: 1,
         }))
     );
+
+const initialSynthState: Synth = {
+    osc1: { type: 'sawtooth', detune: 0, fmDepth: 0, waveshapeAmount: 0, sync: false },
+    osc2: { type: 'square', detune: -1200, fmDepth: 100, waveshapeAmount: 0 },
+    oscMix: 0.5,
+    filter: { type: 'lowpass', cutoff: 8000, resonance: 1, envAmount: 3000 },
+    filterEnv: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.3 },
+    ampEnv: { attack: 0.005, decay: 0.5, sustain: 1, release: 0.1 },
+    lfo1: { type: 'sine', rate: 5 },
+    lfo2: { type: 'sine', rate: 2 },
+    globalGateTime: 0.5,
+};
 
 const initialState: AppState = {
     audioContext: null,
@@ -79,6 +91,11 @@ const initialState: AppState = {
         release: 0.25,
     },
     playbackTrackStates: Array.from({ length: TOTAL_BANKS }, () => ({ currentPart: 'A', partRepetition: 0 })),
+    // Synth
+    synth: initialSynthState,
+    synthModMatrix: {},
+    synthPresets: Array(64).fill(null),
+    synthModPatches: Array(16).fill(null),
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -850,6 +867,76 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 };
             }
             return { ...state, samples: newSamples };
+        }
+        case ActionType.UPDATE_SYNTH_PARAM: {
+            const { path, value } = action.payload;
+            const newSynth = JSON.parse(JSON.stringify(state.synth));
+            const keys = path.split('.');
+            let current = newSynth;
+            for (let i = 0; i < keys.length - 1; i++) {
+                current = current[keys[i]];
+            }
+            current[keys[keys.length - 1]] = value;
+            return { ...state, synth: newSynth };
+        }
+        case ActionType.SET_SYNTH_MOD_MATRIX: {
+            const { source, dest, value } = action.payload;
+            const newMatrix = JSON.parse(JSON.stringify(state.synthModMatrix));
+            if (!newMatrix[source]) {
+                newMatrix[source] = {};
+            }
+            newMatrix[source][dest] = value;
+            return { ...state, synthModMatrix: newMatrix };
+        }
+        case ActionType.RANDOMIZE_SYNTH_MOD_MATRIX: {
+            const newMatrix: ModMatrix = {};
+            // Simplified randomization logic
+            const sources = ['lfo1', 'lfo2', 'filterEnv'];
+            const destinations = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'filterCutoff', 'filterQ'];
+            for (const source of sources) {
+                newMatrix[source] = {};
+                for (const dest of destinations) {
+                    if (Math.random() > 0.7) { // ~30% chance of connection
+                        newMatrix[source][dest] = true;
+                    }
+                }
+            }
+            return { ...state, synthModMatrix: newMatrix };
+        }
+        case ActionType.SAVE_SYNTH_MOD_PATCH: {
+            const { name, matrix } = action.payload;
+            const newPatches = [...state.synthModPatches];
+            const firstEmptyIndex = newPatches.findIndex(p => p === null);
+            if (firstEmptyIndex !== -1) {
+                newPatches[firstEmptyIndex] = {
+                    id: firstEmptyIndex,
+                    name: name,
+                    modMatrix: JSON.parse(JSON.stringify(matrix)),
+                };
+            }
+            return { ...state, synthModPatches: newPatches };
+        }
+        case ActionType.SAVE_SYNTH_PRESET: {
+            const { name, synth, matrix } = action.payload;
+            const newPresets = [...state.synthPresets];
+            const firstEmptyIndex = newPresets.findIndex(p => p === null);
+            if (firstEmptyIndex !== -1) {
+                newPresets[firstEmptyIndex] = {
+                    id: firstEmptyIndex,
+                    name: name,
+                    synth: JSON.parse(JSON.stringify(synth)),
+                    modMatrix: JSON.parse(JSON.stringify(matrix)),
+                };
+            }
+            return { ...state, synthPresets: newPresets };
+        }
+        case ActionType.LOAD_SYNTH_PRESET: {
+            const preset = action.payload;
+            return {
+                ...state,
+                synth: JSON.parse(JSON.stringify(preset.synth)),
+                synthModMatrix: JSON.parse(JSON.stringify(preset.modMatrix)),
+            };
         }
         default:
             return state;

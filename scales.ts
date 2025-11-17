@@ -1,4 +1,5 @@
 
+
 // All intervals are in cents (1/100th of a semitone)
 interface Scale {
     name: string;

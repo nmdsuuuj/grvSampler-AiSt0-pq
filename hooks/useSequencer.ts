@@ -50,7 +50,10 @@ const remapDetuneToScale = (originalDetune: number, targetScaleName: string, tar
 // --- End Helper ---
 
 
-export const useSequencer = (playSample: (sampleId: number, time: number, params: Partial<PlaybackParams>) => void) => {
+export const useSequencer = (
+    playSample: (sampleId: number, time: number, params: Partial<PlaybackParams>) => void,
+    playSynthNote: (detune: number, time: number) => void
+) => {
     const { state, dispatch } = useContext(AppContext);
     const { isPlaying, audioContext } = state;
 
@@ -130,45 +133,63 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
 
                 const firstSampleInBank = nextTrackIndex * PADS_PER_BANK;
                 const lastSampleInBank = firstSampleInBank + PADS_PER_BANK;
-                for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
-                    const stepInfo = pattern.steps[sampleId]?.[displayStep];
-                    if (stepInfo?.active) {
-                        const sample = samples[sampleId];
-                        const paramLocks = pattern.paramLocks[sampleId];
-                        
-                        let finalDetune = stepInfo.detune ?? 0;
 
-                        // --- Non-destructive Playback Scale Logic ---
-                        if (pattern.playbackScale && pattern.playbackScale !== 'Thru') {
-                            finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
+                const stepResolution = isPartA ? pattern.stepResolutionA : pattern.stepResolutionB;
+                const stepDurationForGroove = 60.0 / bpm / (stepResolution / 4);
+                
+                // Use the "live" global groove state, which is loaded from the pattern by the reducer.
+                const grooveId = activeGrooveIds[nextTrackIndex];
+                const grooveDepth = grooveDepths[nextTrackIndex];
+
+                const groovePattern = GROOVE_PATTERNS[grooveId];
+                const grooveOffsetIndex = displayStep % STEPS_PER_PART;
+                const offsetFraction = groovePattern.offsets[grooveOffsetIndex] || 0;
+                const timeShift = stepDurationForGroove * offsetFraction * grooveDepth;
+                const scheduledTime = trackState.nextStepTime + timeShift;
+                const isSynthBank = nextTrackIndex === 3;
+
+                if (isSynthBank) {
+                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
+                        const stepInfo = pattern.steps[sampleId]?.[displayStep];
+                        if (stepInfo?.active) {
+                            let finalDetune = stepInfo.detune ?? 0;
+
+                            // --- Non-destructive Playback Scale Logic ---
+                            if (pattern.playbackScale && pattern.playbackScale !== 'Thru') {
+                                finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
+                            }
+                            // --- End Logic ---
+                            playSynthNote(finalDetune, scheduledTime);
                         }
-                        // --- End Logic ---
+                    }
+                } else {
+                    for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
+                        const stepInfo = pattern.steps[sampleId]?.[displayStep];
+                        if (stepInfo?.active) {
+                            const sample = samples[sampleId];
+                            const paramLocks = pattern.paramLocks[sampleId];
+                            
+                            let finalDetune = stepInfo.detune ?? 0;
 
-                        const playbackParams: Partial<PlaybackParams> = {
-                            detune: finalDetune,
-                            velocity: stepInfo.velocity,
-                            volume: paramLocks?.volume?.[displayStep] ?? sample.volume,
-                            pitch: paramLocks?.pitch?.[displayStep] ?? sample.pitch,
-                            start: paramLocks?.start?.[displayStep] ?? sample.start,
-                            decay: paramLocks?.decay?.[displayStep] ?? sample.decay,
-                            lpFreq: paramLocks?.lpFreq?.[displayStep] ?? sample.lpFreq,
-                            hpFreq: paramLocks?.hpFreq?.[displayStep] ?? sample.hpFreq,
-                        };
-                        
-                        const stepResolution = isPartA ? pattern.stepResolutionA : pattern.stepResolutionB;
-                        const stepDurationForGroove = 60.0 / bpm / (stepResolution / 4);
-                        
-                        // Use the "live" global groove state, which is loaded from the pattern by the reducer.
-                        const grooveId = activeGrooveIds[nextTrackIndex];
-                        const grooveDepth = grooveDepths[nextTrackIndex];
+                            // --- Non-destructive Playback Scale Logic ---
+                            if (pattern.playbackScale && pattern.playbackScale !== 'Thru') {
+                                finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
+                            }
+                            // --- End Logic ---
 
-                        const groovePattern = GROOVE_PATTERNS[grooveId];
-                        const grooveOffsetIndex = displayStep % STEPS_PER_PART;
-                        const offsetFraction = groovePattern.offsets[grooveOffsetIndex] || 0;
-                        const timeShift = stepDurationForGroove * offsetFraction * grooveDepth;
-                        const scheduledTime = trackState.nextStepTime + timeShift;
-                        
-                        playSample(sampleId, scheduledTime, playbackParams);
+                            const playbackParams: Partial<PlaybackParams> = {
+                                detune: finalDetune,
+                                velocity: stepInfo.velocity,
+                                volume: paramLocks?.volume?.[displayStep] ?? sample.volume,
+                                pitch: paramLocks?.pitch?.[displayStep] ?? sample.pitch,
+                                start: paramLocks?.start?.[displayStep] ?? sample.start,
+                                decay: paramLocks?.decay?.[displayStep] ?? sample.decay,
+                                lpFreq: paramLocks?.lpFreq?.[displayStep] ?? sample.lpFreq,
+                                hpFreq: paramLocks?.hpFreq?.[displayStep] ?? sample.hpFreq,
+                            };
+                            
+                            playSample(sampleId, scheduledTime, playbackParams);
+                        }
                     }
                 }
                 
@@ -189,7 +210,6 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
                     });
                 }
 
-                const stepResolution = isPartA ? pattern.stepResolutionA : pattern.stepResolutionB;
                 const stepDuration = 60.0 / bpm / (stepResolution / 4);
                 trackState.nextStepTime += stepDuration;
                 trackState.partStep++;
@@ -216,5 +236,5 @@ export const useSequencer = (playSample: (sampleId: number, time: number, params
             }
         };
 
-    }, [isPlaying, audioContext, dispatch, playSample]);
+    }, [isPlaying, audioContext, dispatch, playSample, playSynthNote]);
 };

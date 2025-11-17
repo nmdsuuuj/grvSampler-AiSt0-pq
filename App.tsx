@@ -11,13 +11,14 @@ import SeqView from './components/views/SeqView';
 import GrooveView from './components/views/GrooveView';
 import MixerView from './components/views/MixerView';
 import ProjectView from './components/views/ProjectView';
+import SynthView from './components/views/SynthView';
 
 import { useAudioEngine } from './hooks/useAudioEngine';
 import { useSequencer } from './hooks/useSequencer';
 import { PADS_PER_BANK } from './constants';
 import SCALES from './scales';
 
-type View = 'SAMPLE' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT';
+type View = 'SAMPLE' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT' | 'SYNTH';
 
 const App: React.FC = () => {
   const { state, dispatch } = useContext(AppContext);
@@ -60,13 +61,16 @@ const App: React.FC = () => {
 
   const { 
     playSample, 
+    // FIX: Destructure playSynthNote from useAudioEngine.
+    playSynthNote,
     loadSampleFromBlob, 
     startRecording, 
     stopRecording,
     startMasterRecording,
     stopMasterRecording,
   } = useAudioEngine();
-  useSequencer(playSample);
+  // FIX: Pass playSynthNote to useSequencer.
+  useSequencer(playSample, playSynthNote);
 
   // --- PC Keyboard Controls ---
   const handlePCKeyboardInput = useCallback((event: KeyboardEvent) => {
@@ -207,8 +211,14 @@ const App: React.FC = () => {
 
         if (noteInCents !== undefined) {
             const detuneWithKeyAndOctave = noteInCents + (activeKey * 100) + ((keyboardOctave - 4) * 1200);
-            const playbackParams: Partial<PlaybackParams> = { detune: detuneWithKeyAndOctave };
-            playSample(activeSampleId, 0, playbackParams);
+            
+            // Play synth if Bank D is active, otherwise play sample
+            if(activeSampleBank === 3) {
+              playSynthNote(detuneWithKeyAndOctave, 0);
+            } else {
+              const playbackParams: Partial<PlaybackParams> = { detune: detuneWithKeyAndOctave };
+              playSample(activeSampleId, 0, playbackParams);
+            }
     
             if (seqMode === 'REC' && isPlaying) {
                 const currentStep = currentSteps[activeSampleBank];
@@ -218,7 +228,7 @@ const App: React.FC = () => {
                         type: ActionType.RECORD_STEP,
                         payload: {
                             patternId: activePatternId,
-                            sampleId: activeSampleId,
+                            sampleId: activeSampleId, // still uses sampleId for lane
                             step: currentStep,
                             detune: detuneWithKeyAndOctave,
                         }
@@ -227,7 +237,7 @@ const App: React.FC = () => {
             }
         }
       }
-  }, [dispatch, playSample, startRecording, stopRecording]);
+  }, [dispatch, playSample, playSynthNote, startRecording, stopRecording]);
   
   useEffect(() => {
       window.addEventListener('keydown', handlePCKeyboardInput);
@@ -257,13 +267,15 @@ const App: React.FC = () => {
             dispatch={dispatch}
         />;
       case 'SEQ':
-        return <SeqView playSample={playSample} startRecording={startRecording} stopRecording={stopRecording} />;
+        return <SeqView playSample={playSample} playSynthNote={playSynthNote} startRecording={startRecording} stopRecording={stopRecording} />;
       case 'GROOVE':
         return <GrooveView />;
       case 'MIXER':
           return <MixerView startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />;
       case 'PROJECT':
         return <ProjectView />;
+      case 'SYNTH':
+        return <SynthView playSynthNote={playSynthNote} />;
       default:
         return <SampleView 
             activeSampleId={state.activeSampleId}
@@ -304,9 +316,10 @@ const App: React.FC = () => {
 
       {/* Footer / View Tabs */}
       <footer className="flex-shrink-0 p-1 bg-emerald-100/50">
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-6 gap-1">
           <TabButton label="SAMPLE" isActive={activeView === 'SAMPLE'} onClick={() => setActiveView('SAMPLE')} />
           <TabButton label="SEQ" isActive={activeView === 'SEQ'} onClick={() => setActiveView('SEQ')} />
+          <TabButton label="SYNTH" isActive={activeView === 'SYNTH'} onClick={() => setActiveView('SYNTH')} />
           <TabButton label="GROOVE" isActive={activeView === 'GROOVE'} onClick={() => setActiveView('GROOVE')} />
           <TabButton label="MIXER" isActive={activeView === 'MIXER'} onClick={() => setActiveView('MIXER')} />
           <TabButton label="PROJECT" isActive={activeView === 'PROJECT'} onClick={() => setActiveView('PROJECT')} />

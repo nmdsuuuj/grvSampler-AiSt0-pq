@@ -29,6 +29,7 @@ const FADER_PARAMS = PARAMS.filter(p => !['pitch', 'volume', 'detune'].includes(
 
 interface SeqViewProps {
     playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
+    playSynthNote: (detune: number, time?: number) => void;
     startRecording: () => void;
     stopRecording: () => void;
 }
@@ -198,7 +199,7 @@ const TemplateModal: React.FC<{
 };
 
 
-const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
+const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
     const { state, dispatch } = useContext(AppContext);
     const [patternViewBank, setPatternViewBank] = useState(0);
     const [selectedStep, setSelectedStep] = useState<number>(0);
@@ -262,7 +263,19 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
 
         // Default behavior for other modes
         dispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: id });
-        if (samples[id] && samples[id].buffer) {
+        
+        const isSynthBank = Math.floor(id / PADS_PER_BANK) === 3;
+        
+        if (isSynthBank) {
+             if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    playSynthNote(0, 0);
+                });
+            } else if (audioContext) {
+                playSynthNote(0, 0);
+            }
+        }
+        else if (samples[id] && samples[id].buffer) {
             if (audioContext && audioContext.state === 'suspended') {
                 audioContext.resume().then(() => {
                     playSample(id, 0);
@@ -392,6 +405,9 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
 
     const sampleBankOffset = activeSampleBank * PADS_PER_BANK;
     const patternBankOffsetForView = (activeSampleBank * PATTERNS_PER_BANK) + (patternViewBank * PADS_PER_BANK);
+    
+    const isSynthTrack = activeSampleBank === 3;
+
 
     if (!activePattern || !activeSample) {
         return <div className="text-center p-4">Loading Sequencer...</div>;
@@ -431,53 +447,62 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                  <div className="flex-shrink-0 bg-white shadow-md p-1 rounded-lg space-y-1">
                     <KeyboardInput
                         playSample={playSample}
+                        playSynthNote={playSynthNote}
                         mode="PARAM"
                         onNoteSelect={(detuneValue) => handleParamChange('detune', detuneValue)}
                     />
-                    <div className="grid grid-cols-3 gap-x-2 gap-y-1">
-                        {FADER_PARAMS.map(p => {
-                            const lockedValue = (p.value === 'velocity')
-                                ? activePattern.steps[sampleId]?.[selectedStep]?.[p.value]
-                                : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedStep];
-                            
-                            let displayValue;
-                            if (lockedValue !== null && lockedValue !== undefined) {
-                                displayValue = lockedValue;
-                            } else {
-                                if (p.value === 'velocity') displayValue = 1; // Default velocity
-                                else displayValue = activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>];
-                            }
-                            
-                            return (
-                                <Fader 
-                                    key={p.value}
-                                    label={p.label} 
-                                    value={displayValue} 
-                                    onChange={(val) => handleParamChange(p.value, val)} 
-                                    min={p.min} 
-                                    max={p.max} 
-                                    step={p.step} 
-                                    defaultValue={p.value === 'velocity' ? 1 : activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>]}
-                                    displayValue={displayValue}
-                                    displayPrecision={p.value.includes('Freq') ? 0 : 2}
-                                    size="thin"
-                                />
-                            );
-                        })}
-                        <div className="flex flex-col space-y-1 justify-center">
-                            <button
-                                onClick={() => setParamGridMode(prev => prev === 'select' ? 'selectAndGate' : 'select')}
-                                className={`h-full w-full rounded text-xs font-bold transition-colors ${paramGridMode === 'selectAndGate' ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
-                            >
-                                {paramGridMode === 'select' ? 'SEL' : 'SEL/GATE'}
-                            </button>
+                    {!isSynthTrack && (
+                         <div className="grid grid-cols-3 gap-x-2 gap-y-1">
+                            {FADER_PARAMS.map(p => {
+                                const lockedValue = (p.value === 'velocity')
+                                    ? activePattern.steps[sampleId]?.[selectedStep]?.[p.value]
+                                    : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedStep];
+                                
+                                let displayValue;
+                                if (lockedValue !== null && lockedValue !== undefined) {
+                                    displayValue = lockedValue;
+                                } else {
+                                    if (p.value === 'velocity') displayValue = 1; // Default velocity
+                                    else displayValue = activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>];
+                                }
+                                
+                                return (
+                                    <Fader 
+                                        key={p.value}
+                                        label={p.label} 
+                                        value={displayValue} 
+                                        onChange={(val) => handleParamChange(p.value, val)} 
+                                        min={p.min} 
+                                        max={p.max} 
+                                        step={p.step} 
+                                        defaultValue={p.value === 'velocity' ? 1 : activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>]}
+                                        displayValue={displayValue}
+                                        displayPrecision={p.value.includes('Freq') ? 0 : 2}
+                                        size="thin"
+                                    />
+                                );
+                            })}
+                            <div className="flex flex-col space-y-1 justify-center">
+                                <button
+                                    onClick={() => setParamGridMode(prev => prev === 'select' ? 'selectAndGate' : 'select')}
+                                    className={`h-full w-full rounded text-xs font-bold transition-colors ${paramGridMode === 'selectAndGate' ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+                                >
+                                    {paramGridMode === 'select' ? 'SEL' : 'SEL/GATE'}
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    )}
+                     {isSynthTrack && (
+                        <div className="text-center text-slate-500 p-4">
+                            シンセトラックのパラメータは<br/>SYNTH画面で編集してください
+                        </div>
+                    )}
                 </div>
             )}
             {seqMode === 'REC' && (
                 <KeyboardInput 
                     playSample={playSample}
+                    playSynthNote={playSynthNote}
                     mode="REC"
                 />
             )}
@@ -499,6 +524,9 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                             } else {
                                 colorClasses = isStepOn ? 'bg-pink-400' : 'bg-emerald-200';
                             }
+                             if(isSynthTrack && isStepOn) {
+                                colorClasses = isPartB ? 'bg-cyan-600' : 'bg-cyan-500';
+                            }
                             
                             if (isCurrentStep) {
                                 colorClasses = isStepOn ? 'bg-lime-300 brightness-125' : 'bg-lime-400/50';
@@ -518,7 +546,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                             if (isCurrentStep) bgClass = 'bg-lime-400/50';
                             
                             const isSelected = selectedStep === stepIndex;
-                            const noteOnClass = isStepOn ? 'border-2 border-pink-400' : 'border-2 border-transparent';
+                            const noteOnClass = isStepOn ? `border-2 ${isSynthTrack ? 'border-cyan-500' : 'border-pink-400'}` : 'border-2 border-transparent';
                             const selectedClass = isSelected ? 'ring-2 ring-sky-400 ring-offset-1' : '';
 
                             return (
@@ -567,7 +595,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample }) => {
                      <BankSelector type="sample" />
                     <div className="grid grid-cols-4 gap-2">
                         {Array.from({ length: PADS_PER_BANK }).map((_, i) => (
-                             <Pad key={i} id={sampleBankOffset + i} label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleBankOffset + i} hasContent={!!samples[sampleBankOffset + i].buffer} padType="sample" />
+                             <Pad key={i} id={sampleBankOffset + i} label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleBankOffset + i} hasContent={!!samples[sampleBankOffset + i].buffer || (activeSampleBank === 3)} padType="sample" />
                         ))}
                     </div>
                 </div>

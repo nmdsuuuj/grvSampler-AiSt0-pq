@@ -1,4 +1,5 @@
 
+
 import React, { useContext, useMemo } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, PlaybackParams } from '../types';
@@ -7,6 +8,7 @@ import SCALES from '../scales';
 
 interface KeyboardInputProps {
     playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
+    playSynthNote: (detune: number, time?: number) => void;
     mode: 'REC' | 'PARAM';
     onNoteSelect?: (detune: number) => void;
 }
@@ -30,7 +32,7 @@ const PHYSICAL_KEYBOARD_LAYOUT = [
 ];
 
 
-const KeyboardInput: React.FC<KeyboardInputProps> = ({ playSample, mode, onNoteSelect }) => {
+const KeyboardInput: React.FC<KeyboardInputProps> = ({ playSample, playSynthNote, mode, onNoteSelect }) => {
     const { state, dispatch } = useContext(AppContext);
     const { activeKey, activeScale, activeSampleId, isPlaying, currentSteps, activePatternIds, activeSampleBank, keyboardOctave } = state;
 
@@ -40,7 +42,11 @@ const KeyboardInput: React.FC<KeyboardInputProps> = ({ playSample, mode, onNoteS
     const handleNotePlay = (detune: number) => {
         const detuneWithOctave = detune + ((keyboardOctave - 4) * 1200);
         
-        playSample(activeSampleId, 0, { detune: detuneWithOctave });
+        if (activeSampleBank === 3) {
+            playSynthNote(detuneWithOctave);
+        } else {
+            playSample(activeSampleId, 0, { detune: detuneWithOctave });
+        }
 
         if (mode === 'REC' && isPlaying && currentStep >= 0) {
             dispatch({

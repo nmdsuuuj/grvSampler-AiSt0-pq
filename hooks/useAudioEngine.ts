@@ -1,4 +1,5 @@
 
+
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, Sample, PlaybackParams } from '../types';
@@ -18,7 +19,7 @@ const usePrevious = <T,>(value: T): T | undefined => {
 
 export const useAudioEngine = () => {
     const { state, dispatch } = useContext(AppContext);
-    const { audioContext, samples, bankVolumes, bankPans, bankMutes, bankSolos, isRecording, isArmed, recordingThreshold, activeSampleId, masterVolume, masterCompressorOn, masterCompressorParams } = state;
+    const { audioContext, samples, bankVolumes, bankPans, bankMutes, bankSolos, isRecording, isArmed, recordingThreshold, activeSampleId, masterVolume, masterCompressorOn, masterCompressorParams, synth } = state;
     
     const masterGainRef = useRef<GainNode | null>(null);
     const masterCompressorRef = useRef<DynamicsCompressorNode | null>(null);
@@ -317,6 +318,114 @@ export const useAudioEngine = () => {
 
     }, []);
 
+    const playSynthNote = useCallback((detune: number, scheduleTime: number) => {
+        const { audioContext: ctx, synth: currentSynth } = stateRef.current;
+        if (!ctx) return;
+    
+        const now = ctx.currentTime;
+        const effectiveTime = scheduleTime === 0 ? now : scheduleTime;
+        const { osc1, osc2, oscMix, filter, filterEnv, ampEnv, globalGateTime } = currentSynth;
+    
+        // --- Create Nodes ---
+        const oscNode1 = ctx.createOscillator();
+        const oscNode2 = ctx.createOscillator();
+        const osc1Gain = ctx.createGain();
+        const osc2Gain = ctx.createGain();
+        const mixer = ctx.createGain();
+        const shaper = ctx.createWaveShaper();
+        const fmGain = ctx.createGain();
+        const filterNode = ctx.createBiquadFilter();
+        const vca = ctx.createGain();
+    
+        // --- Build Audio Graph ---
+        // FM: Osc2 -> Osc1 Freq
+        oscNode2.connect(fmGain);
+        fmGain.connect(oscNode1.frequency);
+
+        // Main Signal Path: Oscillators -> Mixer -> [Shaper] -> Filter -> VCA -> Bank Gain
+        oscNode1.connect(osc1Gain);
+        oscNode2.connect(osc2Gain);
+        osc1Gain.connect(mixer);
+        osc2Gain.connect(mixer);
+        
+        let lastNodeInChain: AudioNode = mixer;
+        if (osc1.waveshapeAmount > 0.01) {
+            lastNodeInChain.connect(shaper);
+            lastNodeInChain = shaper;
+        }
+        lastNodeInChain.connect(filterNode);
+        filterNode.connect(vca);
+
+        const bankIndex = 3; // Synth is on Bank D
+        if (bankGainsRef.current[bankIndex]) {
+            vca.connect(bankGainsRef.current[bankIndex]);
+        }
+    
+        // --- Set Initial Parameters ---
+        const baseFreq = 440 * Math.pow(2, (detune - 6900) / 1200);
+        oscNode1.type = osc1.type;
+        oscNode1.frequency.setValueAtTime(baseFreq, effectiveTime);
+        oscNode1.detune.setValueAtTime(osc1.detune, effectiveTime);
+        
+        oscNode2.type = osc2.type;
+        oscNode2.frequency.setValueAtTime(baseFreq, effectiveTime); // Frequency relative to base for FM
+        oscNode2.detune.setValueAtTime(osc2.detune, effectiveTime);
+        
+        fmGain.gain.setValueAtTime(osc2.fmDepth, effectiveTime);
+
+        const makeDistortionCurve = (amount: number) => {
+            const k = amount * 150;
+            const n_samples = 44100;
+            const curve = new Float32Array(n_samples);
+            for (let i = 0; i < n_samples; ++i) {
+                const x = i * 2 / n_samples - 1;
+                curve[i] = (3 + k) * x * 20 * (Math.PI / 180) / (Math.PI + k * Math.abs(x));
+            }
+            return curve;
+        };
+        if (osc1.waveshapeAmount > 0.01) {
+            shaper.curve = makeDistortionCurve(osc1.waveshapeAmount);
+            shaper.oversample = '4x';
+        }
+    
+        osc1Gain.gain.value = 1 - oscMix;
+        osc2Gain.gain.value = oscMix;
+    
+        filterNode.type = filter.type;
+        filterNode.frequency.setValueAtTime(filter.cutoff, effectiveTime);
+        filterNode.Q.setValueAtTime(filter.resonance, effectiveTime);
+    
+        // --- Envelopes & Scheduling ---
+        const stopTime = effectiveTime + globalGateTime;
+        const finalStopTime = stopTime + Math.max(ampEnv.release, filterEnv.release) + 0.2;
+
+        // Amp Envelope
+        const amp = vca.gain;
+        amp.cancelScheduledValues(effectiveTime);
+        amp.setValueAtTime(0, effectiveTime);
+        amp.linearRampToValueAtTime(1, effectiveTime + ampEnv.attack);
+        amp.linearRampToValueAtTime(ampEnv.sustain, effectiveTime + ampEnv.attack + ampEnv.decay);
+        amp.setValueAtTime(ampEnv.sustain, stopTime);
+        amp.linearRampToValueAtTime(0, stopTime + ampEnv.release);
+    
+        // Filter Envelope
+        const filterFreq = filterNode.frequency;
+        filterFreq.cancelScheduledValues(effectiveTime);
+        filterFreq.setValueAtTime(filter.cutoff, effectiveTime);
+        const peakFreq = filter.cutoff + filter.envAmount;
+        filterFreq.linearRampToValueAtTime(peakFreq, effectiveTime + filterEnv.attack);
+        filterFreq.linearRampToValueAtTime(filter.cutoff + (filter.envAmount * filterEnv.sustain), effectiveTime + filterEnv.attack + filterEnv.decay);
+        filterFreq.setValueAtTime(filter.cutoff + (filter.envAmount * filterEnv.sustain), stopTime);
+        filterFreq.linearRampToValueAtTime(filter.cutoff, stopTime + filterEnv.release);
+    
+        // --- Start/Stop Oscillators ---
+        oscNode1.start(effectiveTime);
+        oscNode2.start(effectiveTime);
+        oscNode1.stop(finalStopTime);
+        oscNode2.stop(finalStopTime);
+    
+    }, []);
+
     const loadSampleFromBlob = useCallback(async (blob: Blob, sampleId: number, name?: string) => {
         const { audioContext: ctx, samples: currentSamples } = stateRef.current;
         if (!ctx) return;
@@ -530,5 +639,5 @@ export const useAudioEngine = () => {
         dispatch({ type: ActionType.TOGGLE_MASTER_RECORDING });
     }, [dispatch]);
 
-    return { playSample, loadSampleFromBlob, startRecording, stopRecording, startMasterRecording, stopMasterRecording };
+    return { playSample, playSynthNote, loadSampleFromBlob, startRecording, stopRecording, startMasterRecording, stopMasterRecording };
 };

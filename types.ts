@@ -81,6 +81,73 @@ export interface BankPresetData {
   grooveDepth: number;
 }
 
+// --- Synth ---
+export interface SynthOscillator {
+    type: OscillatorType;
+    detune: number; // in cents
+    fmDepth: number;
+    waveshapeAmount: number;
+    sync?: boolean; // only for osc1
+}
+
+export interface SynthFilter {
+    type: BiquadFilterType;
+    cutoff: number; // in Hz
+    resonance: number;
+    envAmount: number;
+}
+
+export interface SynthEnvelope {
+    attack: number; // in seconds
+    decay: number;
+    sustain: number; // 0-1
+    release: number;
+}
+
+export interface SynthAmpEnvelope {
+    attack: number;
+    decay: number;
+    sustain: number;
+    release: number;
+}
+
+
+export interface SynthLFO {
+    type: OscillatorType;
+    rate: number; // in Hz
+}
+
+export interface Synth {
+    osc1: SynthOscillator;
+    osc2: SynthOscillator;
+    oscMix: number; // 0-1
+    filter: SynthFilter;
+    filterEnv: SynthEnvelope;
+    ampEnv: SynthAmpEnvelope;
+    lfo1: SynthLFO;
+    lfo2: SynthLFO;
+    globalGateTime: number; // in seconds
+}
+
+export interface ModMatrix {
+    [source: string]: {
+        [destination: string]: boolean;
+    };
+}
+
+export interface SynthPreset {
+    id: number;
+    name: string;
+    synth: Synth;
+    modMatrix: ModMatrix;
+}
+
+export interface ModPatch {
+    id: number;
+    name: string;
+    modMatrix: ModMatrix;
+}
+
 
 export interface AppState {
     audioContext: AudioContext | null;
@@ -121,6 +188,11 @@ export interface AppState {
         currentPart: 'A' | 'B';
         partRepetition: number;
     }[];
+    // Synth state
+    synth: Synth;
+    synthModMatrix: ModMatrix;
+    synthPresets: (SynthPreset | null)[];
+    synthModPatches: (ModPatch | null)[];
 }
 
 export enum ActionType {
@@ -176,6 +248,13 @@ export enum ActionType {
     SET_SEQ_MODE,
     LOAD_BANK_PRESET,
     LOAD_BANK_KIT,
+    // Synth Actions
+    UPDATE_SYNTH_PARAM,
+    SET_SYNTH_MOD_MATRIX,
+    RANDOMIZE_SYNTH_MOD_MATRIX,
+    SAVE_SYNTH_MOD_PATCH,
+    SAVE_SYNTH_PRESET,
+    LOAD_SYNTH_PRESET,
 }
 
 export type Action =
@@ -230,4 +309,11 @@ export type Action =
     | { type: ActionType.SET_KEYBOARD_OCTAVE, payload: number }
     | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' }
     | { type: ActionType.LOAD_BANK_PRESET, payload: { bankIndex: number, presetData: BankPresetData } }
-    | { type: ActionType.LOAD_BANK_KIT, payload: { bankIndex: number, samples: Sample[] } };
+    | { type: ActionType.LOAD_BANK_KIT, payload: { bankIndex: number, samples: Sample[] } }
+    // Synth Actions
+    | { type: ActionType.UPDATE_SYNTH_PARAM; payload: { path: string; value: string | number | boolean } }
+    | { type: ActionType.SET_SYNTH_MOD_MATRIX; payload: { source: string; dest: string; value: boolean } }
+    | { type: ActionType.RANDOMIZE_SYNTH_MOD_MATRIX }
+    | { type: ActionType.SAVE_SYNTH_MOD_PATCH; payload: { name: string, matrix: ModMatrix } }
+    | { type: ActionType.SAVE_SYNTH_PRESET; payload: { name: string, synth: Synth, matrix: ModMatrix } }
+    | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset };
