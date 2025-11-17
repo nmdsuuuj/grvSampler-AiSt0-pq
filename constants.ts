@@ -1,5 +1,4 @@
-
-import { Groove } from "./types";
+import { Groove, OscillatorWaveform, BiquadFilterType, WaveShaperType } from "./types";
 
 export const PAD_SIZE = 'w-8 h-8';
 export const TOTAL_BANKS = 4;
@@ -73,3 +72,12 @@ export const GROOVE_PATTERNS: Groove[] = Array.from({ length: TOTAL_GROOVES}, (_
     
     return pattern;
 });
+
+// --- Synth Constants ---
+export const OSC_WAVEFORMS: OscillatorWaveform[] = ['sine', 'square', 'sawtooth', 'triangle', 'supersaw', 'pwm'];
+export const LFO_WAVEFORMS: OscillatorWaveform[] = ['sine', 'square', 'sawtooth', 'triangle'];
+export const FILTER_TYPES: BiquadFilterType[] = ['lowpass', 'highpass', 'bandpass', 'notch', 'allpass', 'lowshelf', 'highshelf'];
+export const WAVESHAPER_TYPES: WaveShaperType[] = ['soft', 'hard', 'bitcrush'];
+
+export const MOD_SOURCES = ['lfo1', 'lfo2', 'filterEnv'];
+export const MOD_DESTINATIONS = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'osc1Wave', 'osc2Wave', 'filterCutoff', 'filterQ'];

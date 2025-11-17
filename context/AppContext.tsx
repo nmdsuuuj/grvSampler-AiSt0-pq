@@ -1,6 +1,6 @@
 import React, { createContext, useReducer, Dispatch } from 'react';
 import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData, Synth, SynthPreset, ModMatrix, ModPatch } from '../types';
-import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK } from '../constants';
+import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK, OSC_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES } from '../constants';
 import SCALES from '../scales';
 
 const createEmptySteps = (): Step[][] =>
@@ -13,16 +13,124 @@ const createEmptySteps = (): Step[][] =>
     );
 
 const initialSynthState: Synth = {
-    osc1: { type: 'sawtooth', detune: 0, fmDepth: 0, waveshapeAmount: 0, sync: false },
-    osc2: { type: 'square', detune: -1200, fmDepth: 100, waveshapeAmount: 0 },
+    osc1: { type: 'sawtooth', octave: 0, detune: 0, fmDepth: 0, waveshapeAmount: 0, waveshapeType: 'soft', sync: false },
+    osc2: { type: 'square', octave: -1, detune: 7, fmDepth: 0, waveshapeAmount: 0, waveshapeType: 'soft' },
     oscMix: 0.5,
     filter: { type: 'lowpass', cutoff: 8000, resonance: 1, envAmount: 3000 },
     filterEnv: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.3 },
-    ampEnv: { attack: 0.005, decay: 0.5, sustain: 1, release: 0.1 },
+    ampEnv: { attack: 0.005, decay: 0.5, sustain: 1 },
     lfo1: { type: 'sine', rate: 5 },
     lfo2: { type: 'sine', rate: 2 },
-    globalGateTime: 0.5,
+    globalGateTime: 0.2,
 };
+
+const defaultPresets: (SynthPreset | null)[] = Array(64).fill(null);
+
+// Preset 0: Fat Bass
+defaultPresets[0] = {
+    id: 0, name: 'Fat Bass',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sawtooth', octave: -1, detune: -5 },
+        osc2: { ...initialSynthState.osc2, type: 'square', octave: -2, detune: 5 },
+        oscMix: 0.5,
+        filter: { type: 'lowpass', cutoff: 800, resonance: 8, envAmount: 2500 },
+        filterEnv: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.2 },
+        ampEnv: { attack: 0.01, decay: 0.4, sustain: 0.8 },
+    },
+    modMatrix: {},
+};
+// Preset 1: FM Lead
+defaultPresets[1] = {
+    id: 1, name: 'FM Lead',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sine', octave: 0 },
+        osc2: { ...initialSynthState.osc2, type: 'sine', octave: 1, detune: 0, fmDepth: 1200 },
+        filter: { type: 'highpass', cutoff: 500, resonance: 5, envAmount: 1000 },
+        filterEnv: { attack: 0.1, decay: 0.5, sustain: 0.8, release: 0.5 },
+        ampEnv: { attack: 0.05, decay: 0.8, sustain: 0.7 },
+    },
+    modMatrix: { 'filterEnv': { 'osc2FM': true } },
+};
+// Preset 2: Sync Lead
+defaultPresets[2] = {
+    id: 2, name: 'Sync Lead',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sawtooth', octave: 0, sync: true },
+        osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: 0, detune: 700 },
+        filter: { type: 'lowpass', cutoff: 2000, resonance: 10, envAmount: 6000 },
+        filterEnv: { attack: 0.02, decay: 0.6, sustain: 0.2, release: 0.4 },
+        ampEnv: { attack: 0.01, decay: 1, sustain: 0.5 },
+    },
+    modMatrix: { 'filterEnv': { 'osc2Pitch': true } },
+};
+// Preset 3: Wobbly Bass
+defaultPresets[3] = {
+    id: 3, name: 'Wobbly Bass',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'square', octave: -2, waveshapeAmount: 0.3, waveshapeType: 'soft' },
+        osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: -1, waveshapeAmount: 0.3, waveshapeType: 'soft' },
+        filter: { type: 'lowpass', cutoff: 400, resonance: 15, envAmount: 100 },
+        ampEnv: { attack: 0.02, decay: 0.3, sustain: 0.9 },
+        lfo1: { type: 'sine', rate: 8 },
+    },
+    modMatrix: { 'lfo1': { 'filterCutoff': true } },
+};
+// Preset 4: Perfect Fifth
+defaultPresets[4] = {
+    id: 4, name: 'Perfect Fifth',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'triangle', octave: 0 },
+        osc2: { ...initialSynthState.osc2, type: 'triangle', octave: 0, detune: 700 },
+        ampEnv: { attack: 0.1, decay: 0.8, sustain: 0.5 },
+    },
+    modMatrix: {},
+};
+// Preset 5: Perfect Fourth
+defaultPresets[5] = {
+    id: 5, name: 'Perfect Fourth',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sawtooth', octave: 0 },
+        osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: 0, detune: 500 },
+        ampEnv: { attack: 0.01, decay: 1.2, sustain: 0.3 },
+    },
+    modMatrix: {},
+};
+// Preset 6: Spacy FX
+defaultPresets[6] = {
+    id: 6, name: 'Spacy FX',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sine', octave: 1, fmDepth: 2000 },
+        osc2: { ...initialSynthState.osc2, type: 'sine', octave: -1, fmDepth: 1000 },
+        filter: { type: 'bandpass', cutoff: 5000, resonance: 25, envAmount: 4000 },
+        filterEnv: { attack: 1.5, decay: 2, sustain: 0.5, release: 2 },
+        ampEnv: { attack: 1, decay: 2, sustain: 1 },
+        lfo1: { type: 'sine', rate: 0.2 },
+        lfo2: { type: 'square', rate: 10 },
+    },
+    modMatrix: { 'lfo1': { 'osc1Pitch': true, 'osc2Pitch': true }, 'lfo2': { 'filterCutoff': true } },
+};
+// Preset 7: Aggro Crush
+defaultPresets[7] = {
+    id: 7, name: 'Aggro Crush',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'pwm', octave: -1, waveshapeAmount: 0.8, waveshapeType: 'bitcrush' },
+        osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: -2, waveshapeAmount: 0.5, waveshapeType: 'hard' },
+        filter: { type: 'lowpass', cutoff: 1500, resonance: 5, envAmount: 3000 },
+        ampEnv: { attack: 0.01, decay: 0.2, sustain: 1 },
+        lfo1: { type: 'sawtooth', rate: 15 },
+    },
+    modMatrix: { 'lfo1': { 'osc1Wave': true } },
+};
+
+
 
 const initialState: AppState = {
     audioContext: null,
@@ -94,7 +202,7 @@ const initialState: AppState = {
     // Synth
     synth: initialSynthState,
     synthModMatrix: {},
-    synthPresets: Array(64).fill(null),
+    synthPresets: defaultPresets,
     synthModPatches: Array(16).fill(null),
 };
 
@@ -879,6 +987,59 @@ const appReducer = (state: AppState, action: Action): AppState => {
             current[keys[keys.length - 1]] = value;
             return { ...state, synth: newSynth };
         }
+        case ActionType.RANDOMIZE_SYNTH_PARAMS: {
+            const random = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)];
+            const randomFloat = (min: number, max: number) => Math.random() * (max - min) + min;
+            const randomInt = (min: number, max: number) => Math.floor(randomFloat(min, max + 1));
+
+            const newSynth: Synth = {
+                ...state.synth,
+                osc1: {
+                    ...state.synth.osc1,
+                    type: random(OSC_WAVEFORMS),
+                    octave: randomInt(-2, 2),
+                    detune: randomFloat(-50, 50),
+                    fmDepth: randomFloat(0, 3000),
+                    waveshapeAmount: Math.random() > 0.5 ? randomFloat(0, 1) : 0,
+                    waveshapeType: random(WAVESHAPER_TYPES),
+                    sync: Math.random() > 0.7,
+                },
+                osc2: {
+                     ...state.synth.osc2,
+                    type: random(OSC_WAVEFORMS),
+                    octave: randomInt(-2, 1),
+                    detune: randomFloat(-50, 50),
+                    fmDepth: randomFloat(0, 3000),
+                    waveshapeAmount: Math.random() > 0.5 ? randomFloat(0, 1) : 0,
+                    waveshapeType: random(WAVESHAPER_TYPES),
+                },
+                oscMix: randomFloat(0, 1),
+                filter: {
+                    ...state.synth.filter,
+                    type: random(FILTER_TYPES),
+                    cutoff: randomFloat(100, 10000),
+                    resonance: randomFloat(0, 25),
+                    envAmount: randomFloat(-6000, 6000),
+                },
+                filterEnv: {
+                    ...state.synth.filterEnv,
+                    attack: randomFloat(0.001, 1.5),
+                    decay: randomFloat(0.1, 2),
+                    sustain: randomFloat(0, 1),
+                    release: randomFloat(0.1, 3),
+                },
+                ampEnv: {
+                    ...state.synth.ampEnv,
+                    attack: randomFloat(0.001, 0.5),
+                    decay: randomFloat(0.1, 2),
+                    sustain: randomFloat(0, 1),
+                },
+                lfo1: { ...state.synth.lfo1, rate: randomFloat(0.1, 20) },
+                lfo2: { ...state.synth.lfo2, rate: randomFloat(0.1, 20) },
+                globalGateTime: randomFloat(0.05, 1.5),
+            };
+            return { ...state, synth: newSynth };
+        }
         case ActionType.SET_SYNTH_MOD_MATRIX: {
             const { source, dest, value } = action.payload;
             const newMatrix = JSON.parse(JSON.stringify(state.synthModMatrix));
@@ -892,7 +1053,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
             const newMatrix: ModMatrix = {};
             // Simplified randomization logic
             const sources = ['lfo1', 'lfo2', 'filterEnv'];
-            const destinations = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'filterCutoff', 'filterQ'];
+            const destinations = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'osc1Wave', 'osc2Wave', 'filterCutoff', 'filterQ'];
             for (const source of sources) {
                 newMatrix[source] = {};
                 for (const dest of destinations) {

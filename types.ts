@@ -82,13 +82,30 @@ export interface BankPresetData {
 }
 
 // --- Synth ---
+export type StandardOscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle';
+export type CustomOscillatorType = 'supersaw' | 'pwm';
+export type OscillatorWaveform = StandardOscillatorType | CustomOscillatorType;
+export type WaveShaperType = 'soft' | 'hard' | 'bitcrush';
+
 export interface SynthOscillator {
-    type: OscillatorType;
+    type: OscillatorWaveform;
+    octave: number; // -2 to 2
     detune: number; // in cents
     fmDepth: number;
     waveshapeAmount: number;
+    waveshapeType: WaveShaperType;
     sync?: boolean; // only for osc1
 }
+
+// FIX: Define and export BiquadFilterType, which was used in SynthFilter but not defined.
+export type BiquadFilterType =
+  | 'lowpass'
+  | 'highpass'
+  | 'bandpass'
+  | 'notch'
+  | 'allpass'
+  | 'lowshelf'
+  | 'highshelf';
 
 export interface SynthFilter {
     type: BiquadFilterType;
@@ -97,7 +114,7 @@ export interface SynthFilter {
     envAmount: number;
 }
 
-export interface SynthEnvelope {
+export interface SynthFilterEnvelope {
     attack: number; // in seconds
     decay: number;
     sustain: number; // 0-1
@@ -107,8 +124,7 @@ export interface SynthEnvelope {
 export interface SynthAmpEnvelope {
     attack: number;
     decay: number;
-    sustain: number;
-    release: number;
+    sustain: number; // 0-1
 }
 
 
@@ -122,7 +138,7 @@ export interface Synth {
     osc2: SynthOscillator;
     oscMix: number; // 0-1
     filter: SynthFilter;
-    filterEnv: SynthEnvelope;
+    filterEnv: SynthFilterEnvelope;
     ampEnv: SynthAmpEnvelope;
     lfo1: SynthLFO;
     lfo2: SynthLFO;
@@ -250,6 +266,7 @@ export enum ActionType {
     LOAD_BANK_KIT,
     // Synth Actions
     UPDATE_SYNTH_PARAM,
+    RANDOMIZE_SYNTH_PARAMS,
     SET_SYNTH_MOD_MATRIX,
     RANDOMIZE_SYNTH_MOD_MATRIX,
     SAVE_SYNTH_MOD_PATCH,
@@ -312,6 +329,7 @@ export type Action =
     | { type: ActionType.LOAD_BANK_KIT, payload: { bankIndex: number, samples: Sample[] } }
     // Synth Actions
     | { type: ActionType.UPDATE_SYNTH_PARAM; payload: { path: string; value: string | number | boolean } }
+    | { type: ActionType.RANDOMIZE_SYNTH_PARAMS }
     | { type: ActionType.SET_SYNTH_MOD_MATRIX; payload: { source: string; dest: string; value: boolean } }
     | { type: ActionType.RANDOMIZE_SYNTH_MOD_MATRIX }
     | { type: ActionType.SAVE_SYNTH_MOD_PATCH; payload: { name: string, matrix: ModMatrix } }

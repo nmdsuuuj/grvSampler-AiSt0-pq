@@ -1,23 +1,13 @@
-
-
 import React, { useContext, useState } from 'react';
 import { AppContext } from '../../context/AppContext';
-// FIX: Import correct types from types.ts
 import { ActionType, Synth, ModMatrix, SynthPreset } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
+import { OSC_WAVEFORMS, LFO_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, MOD_SOURCES, MOD_DESTINATIONS } from '../../constants';
 
 interface SynthViewProps {
     playSynthNote: (detune: number, time?: number) => void;
 }
-
-const OSC_WAVEFORMS: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
-const LFO_WAVEFORMS: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
-const FILTER_TYPES: BiquadFilterType[] = ['lowpass', 'highpass', 'bandpass', 'notch', 'allpass', 'lowshelf', 'highshelf'];
-
-const MOD_SOURCES = ['lfo1', 'lfo2', 'filterEnv'];
-const MOD_DESTINATIONS = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'osc1Wave', 'osc2Wave', 'filterCutoff', 'filterQ'];
-
 
 const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
     const { state, dispatch } = useContext(AppContext);
@@ -26,43 +16,47 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
     const [presetBank, setPresetBank] = useState(0);
     const [modPatchBank, setModPatchBank] = useState(0);
 
-    // FIX: Allow boolean values for parameters like oscillator sync.
     const handleParamChange = (paramPath: string, value: string | number | boolean) => {
-        // FIX: Use correct action type from enum.
         dispatch({ type: ActionType.UPDATE_SYNTH_PARAM, payload: { path: paramPath, value } });
     };
 
     const handleMatrixToggle = (source: string, dest: string) => {
         const currentVal = synthModMatrix[source]?.[dest] ?? false;
-        // FIX: Use correct action type from enum.
         dispatch({ type: ActionType.SET_SYNTH_MOD_MATRIX, payload: { source, dest, value: !currentVal } });
     };
 
     const handleRandomizeMatrix = () => {
-        // FIX: Use correct action type from enum.
+        dispatch({ type: ActionType.RANDOMIZE_SYNTH_MOD_MATRIX });
+    };
+
+     const handleRandomizeAll = () => {
+        dispatch({ type: ActionType.RANDOMIZE_SYNTH_PARAMS });
         dispatch({ type: ActionType.RANDOMIZE_SYNTH_MOD_MATRIX });
     };
 
     const handleSaveModPatch = () => {
-        const name = prompt('Enter a name for the mod patch:', 'New Patch');
-        if (name) {
-            // FIX: Use correct action type from enum.
-            dispatch({ type: ActionType.SAVE_SYNTH_MOD_PATCH, payload: { name, matrix: synthModMatrix } });
-            alert('Modulation patch saved!');
+        const firstEmptyIndex = synthModPatches.findIndex(p => p === null);
+        if (firstEmptyIndex === -1) {
+            alert('All mod patch slots are full!');
+            return;
         }
+        const name = `Patch ${firstEmptyIndex + 1}`;
+        dispatch({ type: ActionType.SAVE_SYNTH_MOD_PATCH, payload: { name, matrix: synthModMatrix } });
+        alert(`Modulation patch saved to the first available slot.`);
     };
     
     const handleSavePreset = () => {
-        const name = prompt('Enter a name for the preset:', 'New Preset');
-        if (name) {
-            // FIX: Use correct action type from enum.
-            dispatch({ type: ActionType.SAVE_SYNTH_PRESET, payload: { name, synth, matrix: synthModMatrix } });
-            alert('Synth preset saved!');
+        const firstEmptyIndex = synthPresets.findIndex(p => p === null);
+        if (firstEmptyIndex === -1) {
+            alert('All preset slots are full!');
+            return;
         }
+        const name = `Preset ${firstEmptyIndex + 1}`;
+        dispatch({ type: ActionType.SAVE_SYNTH_PRESET, payload: { name, synth, matrix: synthModMatrix } });
+        alert(`Saved to the first available slot: P${(firstEmptyIndex % 16) + 1} in Bank ${Math.floor(firstEmptyIndex / 16) + 1}.`);
     };
     
     const handleLoadPreset = (preset: SynthPreset) => {
-        // FIX: Use correct action type from enum.
         dispatch({ type: ActionType.LOAD_SYNTH_PRESET, payload: preset });
     };
 
@@ -86,9 +80,13 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                         <select value={synth.osc1.type} onChange={e => handleParamChange('osc1.type', e.target.value)} className="w-full bg-emerald-100 p-1 rounded text-sm">
                             {OSC_WAVEFORMS.map(w => <option key={w} value={w}>{w}</option>)}
                         </select>
-                        <Fader label="Detune" value={synth.osc1.detune} onChange={v => handleParamChange('osc1.detune', v)} min={-1200} max={1200} step={1} defaultValue={0} size="thin" displayPrecision={0} />
+                        <Fader label="Octave" value={synth.osc1.octave} onChange={v => handleParamChange('osc1.octave', v)} min={-2} max={2} step={1} defaultValue={0} size="thin" displayPrecision={0} />
+                        <Fader label="Detune" value={synth.osc1.detune} onChange={v => handleParamChange('osc1.detune', v)} min={-100} max={100} step={1} defaultValue={0} size="thin" displayPrecision={0} />
                         <Fader label="FM Depth" value={synth.osc1.fmDepth} onChange={v => handleParamChange('osc1.fmDepth', v)} min={0} max={5000} step={1} defaultValue={0} size="thin" displayPrecision={0} />
-                        <Fader label="Waveshape" value={synth.osc1.waveshapeAmount} onChange={v => handleParamChange('osc1.waveshapeAmount', v)} min={0} max={1} step={0.01} defaultValue={0} size="thin" />
+                         <select value={synth.osc1.waveshapeType} onChange={e => handleParamChange('osc1.waveshapeType', e.target.value)} className="w-full bg-emerald-100 p-1 rounded text-sm text-center">
+                            {WAVESHAPER_TYPES.map(w => <option key={w} value={w}>{w}</option>)}
+                        </select>
+                        <Fader label="WS Amount" value={synth.osc1.waveshapeAmount} onChange={v => handleParamChange('osc1.waveshapeAmount', v)} min={0} max={1} step={0.01} defaultValue={0} size="thin" />
                         <button onClick={() => handleParamChange('osc1.sync', !synth.osc1.sync)} className={`w-full py-1 text-sm font-bold rounded ${synth.osc1.sync ? 'bg-pink-400 text-white' : 'bg-emerald-200'}`}>Hard Sync</button>
                     </div>
                 ))}
@@ -97,9 +95,13 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                         <select value={synth.osc2.type} onChange={e => handleParamChange('osc2.type', e.target.value)} className="w-full bg-emerald-100 p-1 rounded text-sm">
                             {OSC_WAVEFORMS.map(w => <option key={w} value={w}>{w}</option>)}
                         </select>
+                        <Fader label="Octave" value={synth.osc2.octave} onChange={v => handleParamChange('osc2.octave', v)} min={-2} max={2} step={1} defaultValue={0} size="thin" displayPrecision={0} />
                         <Fader label="Detune" value={synth.osc2.detune} onChange={v => handleParamChange('osc2.detune', v)} min={-1200} max={1200} step={1} defaultValue={0} size="thin" displayPrecision={0} />
                         <Fader label="FM Depth" value={synth.osc2.fmDepth} onChange={v => handleParamChange('osc2.fmDepth', v)} min={0} max={5000} step={1} defaultValue={0} size="thin" displayPrecision={0} />
-                        <Fader label="Waveshape" value={synth.osc2.waveshapeAmount} onChange={v => handleParamChange('osc2.waveshapeAmount', v)} min={0} max={1} step={0.01} defaultValue={0} size="thin" />
+                         <select value={synth.osc2.waveshapeType} onChange={e => handleParamChange('osc2.waveshapeType', e.target.value)} className="w-full bg-emerald-100 p-1 rounded text-sm text-center">
+                            {WAVESHAPER_TYPES.map(w => <option key={w} value={w}>{w}</option>)}
+                        </select>
+                        <Fader label="WS Amount" value={synth.osc2.waveshapeAmount} onChange={v => handleParamChange('osc2.waveshapeAmount', v)} min={0} max={1} step={0.01} defaultValue={0} size="thin" />
                     </div>
                 ))}
             </div>
@@ -113,16 +115,18 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                         </select>
                         <Fader label="Cutoff" value={logToLinear(synth.filter.cutoff)} onChange={v => handleParamChange('filter.cutoff', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={1} displayValue={synth.filter.cutoff} displayPrecision={0} size="thin" />
                         <Fader label="Resonance" value={synth.filter.resonance} onChange={v => handleParamChange('filter.resonance', v)} min={0} max={30} step={0.1} defaultValue={1} size="thin" />
-                        <Fader label="Env Amt" value={synth.filter.envAmount} onChange={v => handleParamChange('filter.envAmount', v)} min={-5000} max={5000} step={10} defaultValue={0} size="thin" displayPrecision={0}/>
+                        <Fader label="Env Amt" value={synth.filter.envAmount} onChange={v => handleParamChange('filter.envAmount', v)} min={-7000} max={7000} step={10} defaultValue={0} size="thin" displayPrecision={0}/>
                     </div>
                 ))}
-                 {renderControlSection('Envelopes', (
+                 {renderControlSection('Envelopes (Filt: ADSR, Amp: ADS)', (
                     <div className="space-y-1">
+                        <Fader label="Amp ATK" value={synth.ampEnv.attack} onChange={v => handleParamChange('ampEnv.attack', v)} min={0.001} max={2} step={0.001} defaultValue={0.01} size="thin" />
+                        <Fader label="Amp DCY" value={synth.ampEnv.decay} onChange={v => handleParamChange('ampEnv.decay', v)} min={0.001} max={5} step={0.001} defaultValue={0.5} size="thin" />
+                        <Fader label="Amp SUS" value={synth.ampEnv.sustain} onChange={v => handleParamChange('ampEnv.sustain', v)} min={0} max={1} step={0.01} defaultValue={0.8} size="thin" />
                         <Fader label="Filt ATK" value={synth.filterEnv.attack} onChange={v => handleParamChange('filterEnv.attack', v)} min={0.001} max={2} step={0.001} defaultValue={0.01} size="thin" />
                         <Fader label="Filt DCY" value={synth.filterEnv.decay} onChange={v => handleParamChange('filterEnv.decay', v)} min={0.001} max={2} step={0.001} defaultValue={0.2} size="thin" />
                         <Fader label="Filt SUS" value={synth.filterEnv.sustain} onChange={v => handleParamChange('filterEnv.sustain', v)} min={0} max={1} step={0.01} defaultValue={0.5} size="thin" />
                         <Fader label="Filt REL" value={synth.filterEnv.release} onChange={v => handleParamChange('filterEnv.release', v)} min={0.001} max={5} step={0.001} defaultValue={0.3} size="thin" />
-                        <Fader label="Amp DCY" value={synth.ampEnv.decay} onChange={v => handleParamChange('ampEnv.decay', v)} min={0.001} max={5} step={0.001} defaultValue={0.5} size="thin" />
                     </div>
                 ))}
             </div>
@@ -171,7 +175,7 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                         </tbody>
                     </table>
                      <div className="flex gap-1 mt-2">
-                        <button onClick={handleRandomizeMatrix} className="flex-1 bg-sky-400 text-white font-bold py-1 rounded text-sm">Random</button>
+                        <button onClick={handleRandomizeMatrix} className="flex-1 bg-sky-400 text-white font-bold py-1 rounded text-sm">Rand Mat</button>
                         <button onClick={handleSaveModPatch} className="flex-1 bg-amber-400 text-white font-bold py-1 rounded text-sm">Save Patch</button>
                     </div>
                 </div>
@@ -186,7 +190,7 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                                 <button key={i} onClick={() => setPresetBank(i)} className={`px-3 py-1 text-xs font-bold rounded ${presetBank === i ? 'bg-pink-400 text-white' : 'bg-emerald-200'}`}>B{i+1}</button>
                             ))}
                         </div>
-                        <button onClick={handleSavePreset} className="bg-sky-500 text-white font-bold px-4 py-1 rounded text-sm">Save Preset</button>
+                        <button onClick={handleSavePreset} className="bg-sky-500 text-white font-bold px-4 py-1 rounded text-sm">Quick Save</button>
                     </div>
                     <div className="grid grid-cols-4 gap-2">
                         {Array.from({ length: 16 }).map((_, i) => {
@@ -209,7 +213,16 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
 
              {/* Global */}
             {renderControlSection('Global', (
-                 <Fader label="Gate Time" value={synth.globalGateTime} onChange={v => handleParamChange('globalGateTime', v)} min={0.01} max={4} step={0.01} defaultValue={0.5} />
+                 <div className="grid grid-cols-2 gap-2">
+                    <div className="col-span-1 flex flex-col space-y-1">
+                        <button onMouseDown={() => playSynthNote(4800, 0)} className="w-full h-full bg-emerald-300 text-emerald-800 font-bold rounded active:bg-pink-400">Test Note</button>
+                        <button onClick={handleRandomizeAll} className="w-full bg-rose-400 text-white font-bold py-1 rounded text-sm">Randomize All</button>
+                    </div>
+                    <div className="col-span-1">
+                        <Fader label="Gate Time" value={synth.globalGateTime} onChange={v => handleParamChange('globalGateTime', v)} min={0.01} max={4} step={0.01} defaultValue={0.5} />
+                        <Fader label="Osc Mix" value={synth.oscMix} onChange={v => handleParamChange('oscMix', v)} min={0} max={1} step={0.01} defaultValue={0.5} size="thin"/>
+                    </div>
+                 </div>
             ))}
             
         </div>
