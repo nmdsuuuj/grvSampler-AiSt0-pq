@@ -62,6 +62,34 @@ export interface PlaybackParams {
     hpFreq: number;
 }
 
+// MIDI Learn types
+export type MidiParamId = 
+    | `sample.${number}.volume`
+    | `sample.${number}.pitch`
+    | `sample.${number}.start`
+    | `sample.${number}.decay`
+    | `sample.${number}.lpFreq`
+    | `sample.${number}.hpFreq`
+    | `bank.${number}.volume`
+    | `bank.${number}.pan`
+    | `master.volume`
+    | `compressor.${keyof MasterCompressorParams}`;
+
+export interface MidiMapping {
+    cc: number; // MIDI CC number (0-127)
+    paramIds: MidiParamId[]; // Multiple parameters can be mapped to one CC
+    min: number; // Parameter min value
+    max: number; // Parameter max value
+}
+
+// Template for saving/loading MIDI mappings
+export interface MidiMappingTemplate {
+    id: string;
+    name: string;
+    mappings: MidiMapping[];
+    createdAt: number;
+}
+
 export interface AppState {
     audioContext: AudioContext | null;
     isInitialized: boolean;
@@ -99,6 +127,12 @@ export interface AppState {
         currentPart: 'A' | 'B';
         partRepetition: number;
     }[];
+    // MIDI Learn state
+    midiLearnMode: MidiParamId | null; // null = not learning, otherwise the param ID being learned
+    midiMappings: MidiMapping[]; // Array of MIDI CC to parameter mappings
+    midiMappingTemplates: MidiMappingTemplate[]; // Saved MIDI mapping templates
+    bankWideMidiLearn: boolean; // If true, assign MIDI to all pads in the same bank
+    templateSwitchMappings: { cc: number; templateId: string }[]; // MIDI CC to template switch mappings (not saved in templates)
 }
 
 export enum ActionType {
@@ -148,6 +182,18 @@ export enum ActionType {
     PASTE_PATTERN,
     SET_KEYBOARD_OCTAVE,
     SET_SEQ_MODE,
+    START_MIDI_LEARN,
+    STOP_MIDI_LEARN,
+    ADD_MIDI_MAPPING,
+    ADD_MIDI_MAPPING_TO_CC, // Add parameter to existing CC mapping
+    REMOVE_MIDI_MAPPING,
+    REMOVE_PARAM_FROM_MIDI_MAPPING,
+    SAVE_MIDI_MAPPING_TEMPLATE,
+    LOAD_MIDI_MAPPING_TEMPLATE,
+    DELETE_MIDI_MAPPING_TEMPLATE,
+    TOGGLE_BANK_WIDE_MIDI_LEARN,
+    SET_TEMPLATE_SWITCH_MAPPING,
+    REMOVE_TEMPLATE_SWITCH_MAPPING,
 }
 
 export type Action =
@@ -196,4 +242,16 @@ export type Action =
     | { type: ActionType.COPY_PATTERN, payload: { patternId: number } }
     | { type: ActionType.PASTE_PATTERN, payload: { patternId: number } }
     | { type: ActionType.SET_KEYBOARD_OCTAVE, payload: number }
-    | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' };
+    | { type: ActionType.SET_SEQ_MODE, payload: 'PART' | 'PARAM' | 'REC' }
+    | { type: ActionType.START_MIDI_LEARN, payload: MidiParamId }
+    | { type: ActionType.STOP_MIDI_LEARN }
+    | { type: ActionType.ADD_MIDI_MAPPING, payload: MidiMapping }
+    | { type: ActionType.ADD_MIDI_MAPPING_TO_CC, payload: { cc: number; paramId: MidiParamId } }
+    | { type: ActionType.REMOVE_MIDI_MAPPING, payload: { cc: number } }
+    | { type: ActionType.REMOVE_PARAM_FROM_MIDI_MAPPING, payload: { cc: number; paramId: MidiParamId } }
+    | { type: ActionType.SAVE_MIDI_MAPPING_TEMPLATE, payload: { name: string } }
+    | { type: ActionType.LOAD_MIDI_MAPPING_TEMPLATE, payload: { templateId: string } }
+    | { type: ActionType.DELETE_MIDI_MAPPING_TEMPLATE, payload: { templateId: string } }
+    | { type: ActionType.TOGGLE_BANK_WIDE_MIDI_LEARN }
+    | { type: ActionType.SET_TEMPLATE_SWITCH_MAPPING, payload: { cc: number; templateId: string } }
+    | { type: ActionType.REMOVE_TEMPLATE_SWITCH_MAPPING, payload: { cc: number } };

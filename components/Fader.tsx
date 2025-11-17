@@ -1,6 +1,8 @@
 
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
+import { AppContext } from '../context/AppContext';
+import { ActionType, MidiParamId } from '../types';
 
 interface FaderProps {
   label?: string;
@@ -16,13 +18,20 @@ interface FaderProps {
   hideInfo?: boolean;
   size?: 'normal' | 'thin';
   hideValue?: boolean;
+  midiParamId?: MidiParamId; // Optional MIDI parameter ID for MIDI learn
 }
 
 const Fader: React.FC<FaderProps> = ({ 
   label, value, onChange, min, max, step, defaultValue, 
   displayValue, displayPrecision = 2, isVertical = false, 
-  hideInfo = false, size = 'normal', hideValue = false
+  hideInfo = false, size = 'normal', hideValue = false,
+  midiParamId
 }) => {
+  const { state, dispatch } = useContext(AppContext);
+  const isLearning = midiParamId !== undefined && state.midiLearnMode === midiParamId;
+  const mappedMapping = midiParamId ? state.midiMappings.find(m => m.paramIds.includes(midiParamId)) : undefined;
+  const mappedCc = mappedMapping?.cc;
+  const isMultiMapped = mappedMapping ? mappedMapping.paramIds.length > 1 : false;
   const [internalValue, setInternalValue] = useState(value);
   const frameId = useRef<number | null>(null);
   const tapTimeout = useRef<number | null>(null);
@@ -82,6 +91,41 @@ const Fader: React.FC<FaderProps> = ({
     });
   };
 
+  const handleMidiLearnClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (midiParamId) {
+      if (isLearning) {
+        dispatch({ type: ActionType.STOP_MIDI_LEARN });
+      } else {
+        dispatch({ type: ActionType.START_MIDI_LEARN, payload: midiParamId });
+      }
+    }
+  };
+
+  const handleRemoveMapping = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (mappedCc !== undefined && midiParamId) {
+      // Remove only this parameter from the mapping
+      if (mappedMapping && mappedMapping.paramIds.length > 1) {
+        dispatch({ 
+          type: ActionType.REMOVE_PARAM_FROM_MIDI_MAPPING, 
+          payload: { cc: mappedCc, paramId: midiParamId } 
+        });
+      } else {
+        // Remove entire mapping if it's the only parameter
+        dispatch({ type: ActionType.REMOVE_MIDI_MAPPING, payload: { cc: mappedCc } });
+      }
+    }
+  };
+
+  const handleMidiLearnClickWithShift = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Normal click: start MIDI learn mode
+    // The actual mapping will happen when MIDI CC is moved
+    // If an existing CC is moved during learn mode, it will be added to that CC
+    handleMidiLearnClick(e);
+  };
+
   const valueToDisplay = displayValue !== undefined ? displayValue : internalValue;
 
   const containerClasses = isVertical ? 'h-full w-auto' : 'w-full h-auto py-1';
@@ -105,12 +149,44 @@ const Fader: React.FC<FaderProps> = ({
             onChange={handleChange}
             onDoubleClick={handleDoubleClick} // For desktop
             onTouchStart={handleTouchStart} // For mobile
-            className={`${isVertical ? 'vertical-fader' : 'horizontal-fader'} ${size === 'thin' ? 'thin-horizontal-fader' : ''}`}
+            className={`${isVertical ? 'vertical-fader' : 'horizontal-fader'} ${size === 'thin' ? 'thin-horizontal-fader' : ''} ${isLearning ? 'ring-2 ring-yellow-400 ring-opacity-75' : ''}`}
           />
           {!hideInfo && (
             <div className={`${labelContainerClasses} ${isVertical ? verticalLabelClasses : horizontalLabelClasses}`}>
                 {label && <span>{label}</span>}
                 {!hideValue && <span>{valueToDisplay.toFixed(displayPrecision)}</span>}
+            </div>
+          )}
+          {midiParamId && (
+            <div className={`absolute ${isVertical ? 'top-0 right-0' : 'top-0 right-0'} flex flex-col gap-0.5`}>
+              <button
+                onClick={handleMidiLearnClickWithShift}
+                className={`w-4 h-4 text-xs font-bold rounded transition-colors ${
+                  isLearning 
+                    ? 'bg-yellow-400 text-slate-800 animate-pulse' 
+                    : mappedCc !== undefined 
+                    ? isMultiMapped ? 'bg-purple-400 text-white' : 'bg-blue-400 text-white'
+                    : 'bg-slate-400 text-white hover:bg-slate-500'
+                }`}
+                title={
+                  isLearning 
+                    ? 'Learning... Move a MIDI control' 
+                    : mappedCc !== undefined 
+                    ? `Mapped to CC${mappedCc}${isMultiMapped ? ` (${mappedMapping.paramIds.length} params)` : ''}` 
+                    : 'Click to learn MIDI (Shift+Click to add to existing CC)'
+                }
+              >
+                M
+              </button>
+              {mappedCc !== undefined && !isLearning && (
+                <button
+                  onClick={handleRemoveMapping}
+                  className="w-4 h-4 text-xs font-bold rounded bg-red-400 text-white hover:bg-red-500"
+                  title={`Remove this param from CC${mappedCc} mapping`}
+                >
+                  ×
+                </button>
+              )}
             </div>
           )}
       </div>

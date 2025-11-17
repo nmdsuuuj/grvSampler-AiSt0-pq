@@ -11,11 +11,14 @@ import SeqView from './components/views/SeqView';
 import GrooveView from './components/views/GrooveView';
 import MixerView from './components/views/MixerView';
 import ProjectView from './components/views/ProjectView';
+import MidiTemplateManager from './components/MidiTemplateManager';
 
 import { useAudioEngine } from './hooks/useAudioEngine';
 import { useSequencer } from './hooks/useSequencer';
+import { useMidi } from './hooks/useMidi';
 import { PADS_PER_BANK } from './constants';
 import SCALES from './scales';
+import { MidiMapping, MidiParamId } from './types';
 
 type View = 'SAMPLE' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT';
 
@@ -67,6 +70,193 @@ const App: React.FC = () => {
     stopMasterRecording,
   } = useAudioEngine();
   useSequencer(playSample);
+
+  // MIDI Learn and Control handling
+  const handleMidiMessage = useCallback((cc: number, value: number) => {
+    const { state: appState, dispatch: appDispatch } = { state: stateRef.current, dispatch };
+    
+    // Normalize MIDI value (0-127) to 0-1
+    const normalizedValue = value / 127;
+
+    // Helper function to get min/max for a parameter
+    const getParamMinMax = (paramId: string): { min: number; max: number } => {
+      let min = 0;
+      let max = 1;
+      
+      if (paramId.startsWith('sample.')) {
+        const [, sampleIdStr, param] = paramId.split('.');
+        const sampleId = parseInt(sampleIdStr, 10);
+        const sample = appState.samples[sampleId];
+        if (sample) {
+          switch (param) {
+            case 'volume':
+            case 'start':
+            case 'decay':
+              min = 0; max = 1;
+              break;
+            case 'pitch':
+              min = -24; max = 24;
+              break;
+            case 'lpFreq':
+            case 'hpFreq':
+              min = 20; max = 20000;
+              break;
+          }
+        }
+      } else if (paramId.startsWith('bank.')) {
+        const [, bankIdStr, param] = paramId.split('.');
+        if (param === 'volume') {
+          min = 0; max = 1;
+        } else if (param === 'pan') {
+          min = -1; max = 1;
+        }
+      } else if (paramId === 'master.volume') {
+        min = 0; max = 1.5;
+      } else if (paramId.startsWith('compressor.')) {
+        const param = paramId.split('.')[1] as keyof typeof appState.masterCompressorParams;
+        switch (param) {
+          case 'threshold':
+            min = -100; max = 0;
+            break;
+          case 'ratio':
+            min = 1; max = 20;
+            break;
+          case 'knee':
+            min = 0; max = 40;
+            break;
+          case 'attack':
+          case 'release':
+            min = 0; max = 1;
+            break;
+        }
+      }
+      return { min, max };
+    };
+
+    // Check for template switch CC first (before learn mode)
+    const templateSwitch = appState.templateSwitchMappings.find(m => m.cc === cc);
+    if (templateSwitch && normalizedValue > 0.5) { // Trigger on high value (button press)
+      appDispatch({ 
+        type: ActionType.LOAD_MIDI_MAPPING_TEMPLATE, 
+        payload: { templateId: templateSwitch.templateId } 
+      });
+      return;
+    }
+
+    // If in MIDI learn mode, create a mapping
+    if (appState.midiLearnMode) {
+      const paramId = appState.midiLearnMode;
+      const { min, max } = getParamMinMax(paramId);
+      
+      // Check if bank-wide mode is enabled and this is a sample parameter
+      if (appState.bankWideMidiLearn && paramId.startsWith('sample.')) {
+        const [, sampleIdStr, param] = paramId.split('.');
+        const sampleId = parseInt(sampleIdStr, 10);
+        const bankIndex = Math.floor(sampleId / PADS_PER_BANK);
+        const paramName = param as 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+        
+        // Create mappings for all 8 pads in the same bank
+        const paramIds: string[] = [];
+        for (let i = 0; i < PADS_PER_BANK; i++) {
+          const padSampleId = bankIndex * PADS_PER_BANK + i;
+          paramIds.push(`sample.${padSampleId}.${paramName}` as MidiParamId);
+        }
+        
+        // Check if this CC already has a mapping
+        const existingMapping = appState.midiMappings.find(m => m.cc === cc);
+        
+        if (existingMapping) {
+          // Add all bank pads to existing CC mapping
+          paramIds.forEach(pid => {
+            appDispatch({ 
+              type: ActionType.ADD_MIDI_MAPPING_TO_CC, 
+              payload: { cc, paramId: pid as MidiParamId } 
+            });
+          });
+        } else {
+          // Create new mapping with all bank pads
+          const mapping: MidiMapping = {
+            cc,
+            paramIds: paramIds as MidiParamId[],
+            min,
+            max,
+          };
+          appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+        }
+      } else {
+        // Normal single parameter mapping
+        const existingMapping = appState.midiMappings.find(m => m.cc === cc);
+        
+        if (existingMapping) {
+          // Add to existing CC mapping
+          appDispatch({ 
+            type: ActionType.ADD_MIDI_MAPPING_TO_CC, 
+            payload: { cc, paramId } 
+          });
+        } else {
+          // Create new mapping
+          const mapping: MidiMapping = {
+            cc,
+            paramIds: [paramId],
+            min,
+            max,
+          };
+          appDispatch({ type: ActionType.ADD_MIDI_MAPPING, payload: mapping });
+        }
+      }
+      return;
+    }
+
+    // Otherwise, apply mappings if they exist
+    const mapping = appState.midiMappings.find(m => m.cc === cc);
+    if (mapping) {
+      // Apply to all parameters mapped to this CC
+      mapping.paramIds.forEach(paramId => {
+        const { min, max } = getParamMinMax(paramId);
+        const paramValue = min + (normalizedValue * (max - min));
+        
+        if (paramId.startsWith('sample.')) {
+          const [, sampleIdStr, param] = paramId.split('.');
+          const sampleId = parseInt(sampleIdStr, 10);
+          const paramName = param as 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+          
+          // Handle log scale for frequencies
+          if (paramName === 'lpFreq' || paramName === 'hpFreq') {
+            const MIN_FREQ = 20, MAX_FREQ = 20000;
+            const linearValue = normalizedValue;
+            const logValue = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, linearValue);
+            appDispatch({
+              type: ActionType.UPDATE_SAMPLE_PARAM,
+              payload: { sampleId, param: paramName, value: logValue },
+            });
+          } else {
+            appDispatch({
+              type: ActionType.UPDATE_SAMPLE_PARAM,
+              payload: { sampleId, param: paramName, value: paramValue },
+            });
+          }
+        } else if (paramId.startsWith('bank.')) {
+          const [, bankIdStr, param] = paramId.split('.');
+          const bankIndex = parseInt(bankIdStr, 10);
+          if (param === 'volume') {
+            appDispatch({ type: ActionType.SET_BANK_VOLUME, payload: { bankIndex, volume: paramValue } });
+          } else if (param === 'pan') {
+            appDispatch({ type: ActionType.SET_BANK_PAN, payload: { bankIndex, pan: paramValue } });
+          }
+        } else if (paramId === 'master.volume') {
+          appDispatch({ type: ActionType.SET_MASTER_VOLUME, payload: paramValue });
+        } else if (paramId.startsWith('compressor.')) {
+          const param = paramId.split('.')[1] as keyof typeof appState.masterCompressorParams;
+          appDispatch({
+            type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM,
+            payload: { param, value: paramValue },
+          });
+        }
+      });
+    }
+  }, [dispatch]);
+
+  useMidi(handleMidiMessage);
 
   // --- PC Keyboard Controls ---
   const handlePCKeyboardInput = useCallback((event: KeyboardEvent) => {
@@ -285,12 +475,17 @@ const App: React.FC = () => {
   
   return (
     <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto relative">
+      {/* MIDI Template Manager */}
+      <MidiTemplateManager />
+      
       {/* Header / Transport */}
       <header className="flex-shrink-0 p-1 bg-emerald-100/50">
-        <Transport 
-          startMasterRecording={startMasterRecording} 
-          stopMasterRecording={stopMasterRecording}
-        />
+        <div className="flex justify-between items-center">
+          <Transport 
+            startMasterRecording={startMasterRecording} 
+            stopMasterRecording={stopMasterRecording}
+          />
+        </div>
       </header>
 
       {/* Main Content */}

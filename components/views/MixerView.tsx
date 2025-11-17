@@ -71,6 +71,7 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                                 max={1}
                                 step={0.01}
                                 defaultValue={0}
+                                midiParamId={`bank.${i}.pan`}
                             />
                         </div>
                         <div className="flex w-full justify-around">
@@ -97,6 +98,7 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                                 step={0.01}
                                 defaultValue={1}
                                 isVertical={true}
+                                midiParamId={`bank.${i}.volume`}
                             />
                         </div>
                     </div>
@@ -126,6 +128,7 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                         step={0.01}
                         defaultValue={1}
                         isVertical={true}
+                        midiParamId="master.volume"
                     />
                 </div>
             </div>
@@ -141,11 +144,11 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                 {masterCompressorOn ? 'ON' : 'OFF'}
             </button>
             <div className="w-full max-w-sm space-y-2">
-                <Fader label="Thresh" value={masterCompressorParams.threshold} onChange={v => handleCompressorParamChange('threshold', v)} min={-100} max={0} step={1} defaultValue={-24} displayPrecision={0} />
-                <Fader label="Ratio" value={masterCompressorParams.ratio} onChange={v => handleCompressorParamChange('ratio', v)} min={1} max={20} step={0.1} defaultValue={12} displayPrecision={1} />
-                <Fader label="Knee" value={masterCompressorParams.knee} onChange={v => handleCompressorParamChange('knee', v)} min={0} max={40} step={1} defaultValue={30} displayPrecision={0} />
-                <Fader label="Attack" value={masterCompressorParams.attack} onChange={v => handleCompressorParamChange('attack', v)} min={0} max={1} step={0.001} defaultValue={0.003} displayPrecision={3} />
-                <Fader label="Release" value={masterCompressorParams.release} onChange={v => handleCompressorParamChange('release', v)} min={0.01} max={1} step={0.001} defaultValue={0.25} displayPrecision={3} />
+                <Fader label="Thresh" value={masterCompressorParams.threshold} onChange={v => handleCompressorParamChange('threshold', v)} min={-100} max={0} step={1} defaultValue={-24} displayPrecision={0} midiParamId="compressor.threshold" />
+                <Fader label="Ratio" value={masterCompressorParams.ratio} onChange={v => handleCompressorParamChange('ratio', v)} min={1} max={20} step={0.1} defaultValue={12} displayPrecision={1} midiParamId="compressor.ratio" />
+                <Fader label="Knee" value={masterCompressorParams.knee} onChange={v => handleCompressorParamChange('knee', v)} min={0} max={40} step={1} defaultValue={30} displayPrecision={0} midiParamId="compressor.knee" />
+                <Fader label="Attack" value={masterCompressorParams.attack} onChange={v => handleCompressorParamChange('attack', v)} min={0} max={1} step={0.001} defaultValue={0.003} displayPrecision={3} midiParamId="compressor.attack" />
+                <Fader label="Release" value={masterCompressorParams.release} onChange={v => handleCompressorParamChange('release', v)} min={0.01} max={1} step={0.001} defaultValue={0.25} displayPrecision={3} midiParamId="compressor.release" />
             </div>
         </div>
     );
