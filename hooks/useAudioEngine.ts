@@ -16,6 +16,8 @@ const usePrevious = <T,>(value: T): T | undefined => {
 
 // Type for the persistent synth graph nodes
 type SynthGraphNodes = {
+    oscSource1: OscillatorNode | AudioBufferSourceNode;
+    oscSource2: OscillatorNode | AudioBufferSourceNode;
     osc1Gain: GainNode;
     osc2Gain: GainNode;
     shaper1: WaveShaperNode;
@@ -42,13 +44,6 @@ type SynthGraphNodes = {
     modGains: { [key: string]: GainNode }; // For LFO -> destination modulation
     lfo1_ws1_modGain: GainNode;
     lfo1_ws2_modGain: GainNode;
-};
-
-// Type for the currently playing note's sources
-// FIX: Changed AudioNode to a more specific type to allow access to methods like .stop()
-type ActiveNoteSources = {
-    oscSource1: OscillatorNode | AudioBufferSourceNode;
-    oscSource2: OscillatorNode | AudioBufferSourceNode;
 };
 
 // --- Synth Audio Generation Helpers (outside hook for memoization) ---
@@ -257,9 +252,13 @@ export const useAudioEngine = () => {
     const hpFilterNodesRef = useRef<BiquadFilterNode[]>([]);
     const activeSourcesRef = useRef<Map<number, Set<AudioBufferSourceNode>>>(new Map());
     
-    // --- NEW SYNTH REFS ---
-    const synthGraphRef = useRef<SynthGraphNodes | null>(null);
-    const activeNoteSourcesRef = useRef<ActiveNoteSources | null>(null);
+    // --- MONO SYNTH REFS ---
+    const synthGraphRef = useRef<{
+        nodes: SynthGraphNodes;
+        osc1Type: string;
+        osc2Type: string;
+    } | null>(null);
+    const activeNoteRef = useRef<{ gateEndTime: number } | null>(null);
 
     // Create a ref to hold the latest state for use in callbacks without causing re-renders.
     const stateRef = useRef(state);
@@ -360,6 +359,8 @@ export const useAudioEngine = () => {
 
         // --- NEW: Initialize persistent synth graph ---
         if (audioContext && !synthGraphRef.current) {
+            const oscSource1 = createOscillatorSource(state.synth.osc1.type, audioContext);
+            const oscSource2 = createOscillatorSource(state.synth.osc2.type, audioContext);
             const osc1Gain = audioContext.createGain();
             const osc2Gain = audioContext.createGain();
             const shaper1 = audioContext.createWaveShaper();
@@ -389,9 +390,12 @@ export const useAudioEngine = () => {
 
 
             // --- Build Audio Graph ---
+            oscSource1.connect(shaper1InputGain);
             shaper1InputGain.connect(shaper1);
             shaper1.connect(osc1Gain);
             osc1Gain.connect(mixer);
+
+            oscSource2.connect(shaper2InputGain);
             shaper2InputGain.connect(shaper2);
             shaper2.connect(osc2Gain);
             osc2Gain.connect(mixer);
@@ -426,6 +430,9 @@ export const useAudioEngine = () => {
                 vca.connect(bankGainsRef.current[bankIndex]);
             }
 
+            // Set initial VCA gain to 0
+            vca.gain.value = 0;
+
             // --- Modulation Setup ---
             const modGains: { [key: string]: GainNode } = {};
             const modSources = ['lfo1', 'lfo2'];
@@ -439,11 +446,10 @@ export const useAudioEngine = () => {
                     modGains[`${source}_${dest}`] = gainNode;
                     modSourceNode.connect(gainNode);
 
-                    // Connect modulation gains to their destinations (except for pitch and dedicated wave, which are dynamic)
                     if (dest === 'osc1FM') gainNode.connect(fm1Gain.gain);
                     if (dest === 'osc2FM') gainNode.connect(fm2Gain.gain);
-                    if (dest === 'osc1Wave' && source === 'lfo2') gainNode.connect(shaper1InputGain.gain); // only LFO2 via matrix
-                    if (dest === 'osc2Wave' && source === 'lfo2') gainNode.connect(shaper2InputGain.gain); // only LFO2 via matrix
+                    if (dest === 'osc1Wave' && source === 'lfo2') gainNode.connect(shaper1InputGain.gain);
+                    if (dest === 'osc2Wave' && source === 'lfo2') gainNode.connect(shaper2InputGain.gain);
                     if (dest === 'filterCutoff') {
                         gainNode.connect(filterNode1.frequency);
                         gainNode.connect(filterNode2.frequency);
@@ -455,7 +461,6 @@ export const useAudioEngine = () => {
                 });
             });
             
-            // Dedicated LFO1 -> Waveshape connections
             lfo1_ws1_modGain.gain.value = 0;
             lfo1_ws2_modGain.gain.value = 0;
             lfo1.connect(lfo1_ws1_modGain);
@@ -465,13 +470,19 @@ export const useAudioEngine = () => {
 
             lfo1.start();
             lfo2.start();
+            oscSource1.start();
+            oscSource2.start();
 
             synthGraphRef.current = {
-                osc1Gain, osc2Gain, shaper1, shaper1InputGain, shaper2, shaper2InputGain,
-                mixer, fm1Gain, fm2Gain, preFilterGain, filterNode1, filterNode2, vca, lfo1, lfo2, modGains,
-                lfo1_ws1_modGain, lfo1_ws2_modGain,
-                combDelay, combFeedbackGain, combInGain, combOutGain,
-                formantInGain, formantFilters, formantOutGain
+                nodes: {
+                    oscSource1, oscSource2, osc1Gain, osc2Gain, shaper1, shaper1InputGain, shaper2, shaper2InputGain,
+                    mixer, fm1Gain, fm2Gain, preFilterGain, filterNode1, filterNode2, vca, lfo1, lfo2, modGains,
+                    lfo1_ws1_modGain, lfo1_ws2_modGain,
+                    combDelay, combFeedbackGain, combInGain, combOutGain,
+                    formantInGain, formantFilters, formantOutGain
+                },
+                osc1Type: state.synth.osc1.type,
+                osc2Type: state.synth.osc2.type,
             };
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -647,7 +658,7 @@ export const useAudioEngine = () => {
 
     const scheduleLfoRetrigger = useCallback((lfoIndex: number, time: number) => {
         const { audioContext: ctx, synth: currentSynth, bpm } = stateRef.current;
-        const synthGraph = synthGraphRef.current;
+        const synthGraph = synthGraphRef.current?.nodes;
         if (!ctx || !synthGraph) return;
 
         const lfo = lfoIndex === 0 ? currentSynth.lfo1 : currentSynth.lfo2;
@@ -699,267 +710,213 @@ export const useAudioEngine = () => {
         const effectiveTime = scheduleTime === 0 ? now : scheduleTime;
         const { osc1, osc2, oscMix, filter, filterEnv, ampEnv, globalGateTime } = currentSynth;
         
+        const isLegato = activeNoteRef.current !== null && effectiveTime < activeNoteRef.current.gateEndTime;
+        const gateEndTime = effectiveTime + globalGateTime;
+
+        // --- Dynamic Oscillator Waveform Swapping ---
+        const handleWaveformChange = (oscIndex: 1 | 2) => {
+            const currentType = oscIndex === 1 ? currentSynth.osc1.type : currentSynth.osc2.type;
+            const graphType = oscIndex === 1 ? synthGraph.osc1Type : synthGraph.osc2Type;
+            if (currentType === graphType) return;
+    
+            const oldSource = oscIndex === 1 ? synthGraph.nodes.oscSource1 : synthGraph.nodes.oscSource2;
+            try { oldSource.stop(); } catch(e) {}
+    
+            const newSource = createOscillatorSource(currentType, ctx);
+            newSource.start();
+    
+            if (oscIndex === 1) {
+                newSource.connect(synthGraph.nodes.shaper1InputGain);
+                if (newSource instanceof OscillatorNode) {
+                    newSource.connect(synthGraph.nodes.fm2Gain);
+                }
+                synthGraph.nodes.oscSource1 = newSource;
+                synthGraph.osc1Type = currentType;
+            } else {
+                newSource.connect(synthGraph.nodes.shaper2InputGain);
+                if (newSource instanceof OscillatorNode) {
+                    newSource.connect(synthGraph.nodes.fm1Gain);
+                }
+                synthGraph.nodes.oscSource2 = newSource;
+                synthGraph.osc2Type = currentType;
+            }
+        };
+        handleWaveformChange(1);
+        handleWaveformChange(2);
+
+        const { nodes } = synthGraph;
+        const oscNode1 = nodes.oscSource1 instanceof OscillatorNode ? nodes.oscSource1 : null;
+        const oscNode2 = nodes.oscSource2 instanceof OscillatorNode ? nodes.oscSource2 : null;
+        
         const effectiveModMatrix = isModMatrixMuted ? {} : currentModMatrix;
 
-        // --- BUG FIX: Reset ALL modulation gains before applying new settings ---
-        Object.values(synthGraph.modGains).forEach(gainNode => {
-            gainNode.gain.cancelScheduledValues(now);
-            gainNode.gain.setValueAtTime(0, now);
-        });
-        synthGraph.lfo1_ws1_modGain.gain.cancelScheduledValues(now);
-        synthGraph.lfo1_ws1_modGain.gain.setValueAtTime(0, now);
-        synthGraph.lfo1_ws2_modGain.gain.cancelScheduledValues(now);
-        synthGraph.lfo1_ws2_modGain.gain.setValueAtTime(0, now);
-
-        // --- Legato / Note-Retriggering Click Prevention ---
-        const LEGATO_RAMP_DOWN_TIME = 0.005;
-        const attackStartTime = Math.max(effectiveTime, now + LEGATO_RAMP_DOWN_TIME);
-        synthGraph.vca.gain.cancelScheduledValues(now);
-        synthGraph.vca.gain.setValueAtTime(synthGraph.vca.gain.value, now);
-        synthGraph.vca.gain.linearRampToValueAtTime(0, now + LEGATO_RAMP_DOWN_TIME);
-        
-        if (activeNoteSourcesRef.current) {
-            const oldSources = activeNoteSourcesRef.current;
-            const releaseTime = now + (filterEnv.decay) + 0.1; // Use decay as release time
-            oldSources.oscSource1.stop(releaseTime);
-            oldSources.oscSource2.stop(releaseTime);
-    
-            if (oldSources.oscSource1 instanceof OscillatorNode) {
-                synthGraph.modGains['lfo1_osc1Pitch']?.disconnect();
-                synthGraph.modGains['lfo2_osc1Pitch']?.disconnect();
-            }
-            if (oldSources.oscSource2 instanceof OscillatorNode) {
-                synthGraph.modGains['lfo1_osc2Pitch']?.disconnect();
-                synthGraph.modGains['lfo2_osc2Pitch']?.disconnect();
-            }
-        }
+        // --- Reset modulation gains on every note for consistency ---
+        Object.values(nodes.modGains).forEach(gainNode => gainNode.gain.cancelAndHoldAtTime(effectiveTime).setValueAtTime(0, effectiveTime));
+        nodes.lfo1_ws1_modGain.gain.cancelAndHoldAtTime(effectiveTime).setValueAtTime(0, effectiveTime);
+        nodes.lfo1_ws2_modGain.gain.cancelAndHoldAtTime(effectiveTime).setValueAtTime(0, effectiveTime);
 
         // --- LFO Gate Retrigger ---
-        if (currentSynth.lfo1.syncTrigger === 'Gate') {
-            scheduleLfoRetrigger(0, attackStartTime);
-        }
-        if (currentSynth.lfo2.syncTrigger === 'Gate') {
-            scheduleLfoRetrigger(1, attackStartTime);
-        }
+        if (currentSynth.lfo1.syncTrigger === 'Gate' && !isLegato) scheduleLfoRetrigger(0, effectiveTime);
+        if (currentSynth.lfo2.syncTrigger === 'Gate' && !isLegato) scheduleLfoRetrigger(1, effectiveTime);
 
-
-        const oscSource1 = createOscillatorSource(osc1.type, ctx);
-        const oscSource2 = createOscillatorSource(osc2.type, ctx);
-        const oscNode1 = oscSource1 instanceof OscillatorNode ? oscSource1 : null;
-        const oscNode2 = oscSource2 instanceof OscillatorNode ? oscSource2 : null;
-
-        oscSource1.connect(synthGraph.shaper1InputGain);
-        oscSource2.connect(synthGraph.shaper2InputGain);
-
-        if (oscNode2) {
-            oscNode2.connect(synthGraph.fm1Gain);
-            if (oscNode1) synthGraph.fm1Gain.connect(oscNode1.frequency);
-        }
-        if (oscNode1) {
-            oscNode1.connect(synthGraph.fm2Gain);
-            if (oscNode2) synthGraph.fm2Gain.connect(oscNode2.frequency);
-        }
-        
         const absoluteDetune = relativeDetune + 6000;
         const baseFreq = 440 * Math.pow(2, (absoluteDetune - 6900) / 1200);
-
-        const gateEndTime = attackStartTime + globalGateTime;
         const timeConstant = (duration: number) => Math.max(0.001, duration / 5);
 
         if (oscNode1) {
-            oscNode1.frequency.setValueAtTime(baseFreq * Math.pow(2, osc1.octave), effectiveTime);
-            oscNode1.detune.setValueAtTime(osc1.detune, effectiveTime);
+            const freq1 = baseFreq * Math.pow(2, osc1.octave);
+            oscNode1.frequency.cancelScheduledValues(effectiveTime);
+            oscNode1.frequency.setTargetAtTime(freq1, effectiveTime, 0.002);
+            oscNode1.detune.cancelScheduledValues(effectiveTime);
+            oscNode1.detune.setTargetAtTime(osc1.detune, effectiveTime, 0.002);
         }
-
         if (oscNode2) {
-            oscNode2.frequency.setValueAtTime(baseFreq * Math.pow(2, osc2.octave), effectiveTime);
-            
-            // P.ENV IMPLEMENTATION for Hard Sync
-            if (osc1.sync) {
-                const pitchEnvAmount = osc2.pitchEnvAmount || 0;
-                const baseDetune = osc2.detune;
-                const filterEnvAttack = filterEnv.attack > 0 ? filterEnv.attack : 0.001;
-                
-                oscNode2.detune.cancelScheduledValues(attackStartTime);
-                oscNode2.detune.setValueAtTime(baseDetune, attackStartTime);
-
-                const peakDetune = baseDetune + pitchEnvAmount;
-                oscNode2.detune.setTargetAtTime(peakDetune, attackStartTime, timeConstant(filterEnvAttack));
-
-                const sustainDetune = baseDetune + (pitchEnvAmount * filterEnv.sustain);
-                oscNode2.detune.setTargetAtTime(sustainDetune, attackStartTime + filterEnvAttack, timeConstant(filterEnv.decay));
-                
-                oscNode2.detune.cancelScheduledValues(gateEndTime);
-                oscNode2.detune.setTargetAtTime(baseDetune, gateEndTime, timeConstant(filterEnv.decay));
-            } else {
-                // Default behavior
-                oscNode2.detune.setValueAtTime(osc2.detune, effectiveTime);
-            }
+            const freq2 = baseFreq * Math.pow(2, osc2.octave);
+            oscNode2.frequency.cancelScheduledValues(effectiveTime);
+            oscNode2.frequency.setTargetAtTime(freq2, effectiveTime, 0.002);
+            oscNode2.detune.cancelScheduledValues(effectiveTime);
+            oscNode2.detune.setTargetAtTime(osc2.detune, effectiveTime, 0.002);
         }
         
-        // OSC MIX
-        const osc1Level = 1 - oscMix;
-        synthGraph.osc1Gain.gain.setValueAtTime(osc1Level, effectiveTime);
-        synthGraph.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
+        nodes.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
+        nodes.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
         
-        // FM DEPTH & SYNC
-        synthGraph.fm1Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc2.fmDepth : 0, effectiveTime);
+        nodes.fm1Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc2.fmDepth : 0, effectiveTime);
+        nodes.fm2Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc1.fmDepth : 0, effectiveTime);
         
-        // Hard sync is simulated by using OSC1 to heavily modulate OSC2's frequency.
-        // The user wants the fader to control the amount, not a hardcoded value.
-        const fm1to2Amount = osc1.fmDepth;
-        synthGraph.fm2Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? fm1to2Amount : 0, effectiveTime);
-        
-        synthGraph.shaper1.curve = makeDistortionCurve(osc1.waveshapeType, osc1.waveshapeAmount);
-        synthGraph.shaper1.oversample = '4x';
-        synthGraph.shaper2.curve = makeDistortionCurve(osc2.waveshapeType, osc2.waveshapeAmount);
-        synthGraph.shaper2.oversample = '4x';
+        nodes.shaper1.curve = makeDistortionCurve(osc1.waveshapeType, osc1.waveshapeAmount);
+        nodes.shaper2.curve = makeDistortionCurve(osc2.waveshapeType, osc2.waveshapeAmount);
     
-        // FIX: Consistently access properties from synthGraph to avoid type inference issues.
-        // The previous implementation used destructuring which caused TS to infer 'unknown' for some nodes.
         // --- Filter Setup ---
-        synthGraph.preFilterGain.gain.setValueAtTime(0, effectiveTime);
-        synthGraph.combInGain.gain.setValueAtTime(0, effectiveTime);
-        synthGraph.formantInGain.gain.setValueAtTime(0, effectiveTime);
+        nodes.preFilterGain.gain.setValueAtTime(0, effectiveTime);
+        nodes.combInGain.gain.setValueAtTime(0, effectiveTime);
+        nodes.formantInGain.gain.setValueAtTime(0, effectiveTime);
 
         const isStandard = filter.type.includes('pass') || filter.type.includes('Peak');
         const isComb = filter.type.includes('Comb');
         const isFormant = filter.type.includes('Formant');
+        let baseCutoff = filter.cutoff;
 
         if (isStandard) {
-            synthGraph.preFilterGain.gain.setValueAtTime(1, effectiveTime);
+            nodes.preFilterGain.gain.setValueAtTime(1, effectiveTime);
             const is24dB = filter.type.includes('24dB');
             const nativeFilterType = filter.type.includes('Peak') ? 'peaking' : (filter.type.toLowerCase().replace(' 12db', '').replace(' 24db', '')) as BiquadFilterType;
             
-            synthGraph.filterNode1.type = nativeFilterType;
-            synthGraph.filterNode2.type = is24dB ? nativeFilterType : 'allpass';
+            nodes.filterNode1.type = nativeFilterType;
+            nodes.filterNode2.type = is24dB ? nativeFilterType : 'allpass';
+            if (!is24dB) nodes.filterNode2.frequency.setValueAtTime(20000, effectiveTime);
 
-            synthGraph.filterNode1.frequency.setValueAtTime(filter.cutoff, effectiveTime);
-            synthGraph.filterNode1.Q.setValueAtTime(filter.resonance, effectiveTime);
-            if (is24dB) {
-                synthGraph.filterNode2.frequency.setValueAtTime(filter.cutoff, effectiveTime);
-                const safeResonance = filter.resonance > 20 ? 20 + (filter.resonance - 20) * 0.5 : filter.resonance;
-                synthGraph.filterNode2.Q.setValueAtTime(safeResonance, effectiveTime);
-            } else {
-                synthGraph.filterNode2.frequency.setValueAtTime(20000, effectiveTime);
-                synthGraph.filterNode2.Q.setValueAtTime(0, effectiveTime);
-            }
         } else if (isComb) {
-            synthGraph.combInGain.gain.setValueAtTime(1, effectiveTime);
-            const delayTime = Math.max(0.001, 1 / filter.cutoff);
-            synthGraph.combDelay.delayTime.setValueAtTime(delayTime, effectiveTime);
+            nodes.combInGain.gain.setValueAtTime(1, effectiveTime);
+            baseCutoff = Math.max(0.001, 1 / filter.cutoff); // Invert for delay time
+            nodes.combDelay.delayTime.setValueAtTime(baseCutoff, effectiveTime);
             const feedback = Math.min(0.95, filter.resonance / 31);
-            synthGraph.combFeedbackGain.gain.setValueAtTime(filter.type === 'Comb+' ? feedback : -feedback, effectiveTime);
+            nodes.combFeedbackGain.gain.setValueAtTime(filter.type === 'Comb+' ? feedback : -feedback, effectiveTime);
         } else if (isFormant) {
-            synthGraph.formantInGain.gain.setValueAtTime(1, effectiveTime);
-            const VOWELS: Record<string, number[]> = { 'A': [650, 1100, 2800], 'E': [450, 1700, 2600], 'I': [300, 2200, 2900], 'O': [400, 800, 2700], 'U': [350, 600, 2700] };
-            const vowelNames = Object.keys(VOWELS);
-            const morph = Math.max(0, Math.min(1, filter.cutoff / 10000)) * (vowelNames.length - 1);
-            const idx1 = Math.floor(morph);
-            const idx2 = Math.min(vowelNames.length - 1, idx1 + 1);
-            const frac = morph - idx1;
-            
-            synthGraph.formantFilters.forEach((f, i) => {
-                const freq1 = VOWELS[vowelNames[idx1]][i];
-                const freq2 = VOWELS[vowelNames[idx2]][i];
-                const freq = freq1 + (freq2 - freq1) * frac;
-                f.type = 'bandpass';
-                f.frequency.setValueAtTime(freq, effectiveTime);
-                f.Q.setValueAtTime(filter.resonance, effectiveTime);
-            });
+            nodes.formantInGain.gain.setValueAtTime(1, effectiveTime);
         }
-        synthGraph.combOutGain.gain.setValueAtTime(isComb ? 1 : 0, effectiveTime);
-        synthGraph.formantOutGain.gain.setValueAtTime(isFormant ? 1 : 0, effectiveTime);
+        nodes.combOutGain.gain.setValueAtTime(isComb ? 1 : 0, effectiveTime);
+        nodes.formantOutGain.gain.setValueAtTime(isFormant ? 1 : 0, effectiveTime);
 
-
-        synthGraph.lfo1.setPeriodicWave(createLfoWave(currentSynth.lfo1.type, ctx));
-        const lfo1SyncRateData = LFO_SYNC_RATES[currentSynth.lfo1.rate];
-        const lfo1Rate = currentSynth.lfo1.rateMode === 'sync' && lfo1SyncRateData
-            ? (bpm / 60) / lfo1SyncRateData.beats
-            : currentSynth.lfo1.rate;
-        synthGraph.lfo1.frequency.setValueAtTime(lfo1Rate, effectiveTime);
-        
-        synthGraph.lfo2.setPeriodicWave(createLfoWave(currentSynth.lfo2.type, ctx));
-        const lfo2SyncRateData = LFO_SYNC_RATES[currentSynth.lfo2.rate];
-        const lfo2Rate = currentSynth.lfo2.rateMode === 'sync' && lfo2SyncRateData
-            ? (bpm / 60) / lfo2SyncRateData.beats
-            : currentSynth.lfo2.rate;
-        synthGraph.lfo2.frequency.setValueAtTime(lfo2Rate, effectiveTime);
+        // --- LFOs & Modulation Matrix ---
+        const setupLfo = (lfoNode: OscillatorNode, lfoParams: typeof currentSynth.lfo1) => {
+            lfoNode.setPeriodicWave(createLfoWave(lfoParams.type, ctx));
+            const syncRateData = LFO_SYNC_RATES[lfoParams.rate];
+            const rate = lfoParams.rateMode === 'sync' && syncRateData ? (bpm / 60) / syncRateData.beats : lfoParams.rate;
+            lfoNode.frequency.setValueAtTime(rate, effectiveTime);
+        };
+        setupLfo(nodes.lfo1, currentSynth.lfo1);
+        setupLfo(nodes.lfo2, currentSynth.lfo2);
         
         Object.keys(effectiveModMatrix).forEach(source => {
-            if (source === 'filterEnv') return;
-            const destinations = effectiveModMatrix[source];
-            if (!destinations) return;
-            Object.keys(destinations).forEach(dest => {
-                const value = destinations[dest];
-                if (!value) return;
-                if (source === 'lfo1' && (dest === 'osc1Wave' || dest === 'osc2Wave')) return;
-
-                const gainNodeKey = `${source}_${dest}`;
-                const gainNode = synthGraph.modGains[gainNodeKey];
+            Object.keys(effectiveModMatrix[source]).forEach(dest => {
+                const value = effectiveModMatrix[source][dest];
+                if (!value || source === 'filterEnv') return;
+                const gainNode = nodes.modGains[`${source}_${dest}`];
                 if (!gainNode) return;
                 
                 let modAmount = 1.0;
-                switch(dest) {
-                    case 'osc1Pitch': case 'osc2Pitch': modAmount = 100; break;
-                    case 'osc1FM': case 'osc2FM': modAmount = 2000; break;
-                    case 'osc1Wave': case 'osc2Wave': modAmount = 1; break;
-                    case 'filterCutoff': modAmount = 5000; break;
-                    case 'filterQ': modAmount = 15; break;
-                }
+                if (dest.includes('Pitch')) modAmount = 100;
+                if (dest.includes('FM')) modAmount = 2000;
+                if (dest.includes('Cutoff')) modAmount = 5000;
+                if (dest.includes('Q')) modAmount = 15;
                 gainNode.gain.setValueAtTime(modAmount * value, effectiveTime);
-
-                if (dest === 'osc1Pitch' && oscNode1) gainNode.connect(oscNode1.detune);
-                if (dest === 'osc2Pitch' && oscNode2) gainNode.connect(oscNode2.detune);
             });
         });
-
-        synthGraph.lfo1_ws1_modGain.gain.setValueAtTime(currentSynth.osc1.wsLfoAmount || 0, effectiveTime);
-        synthGraph.lfo1_ws2_modGain.gain.setValueAtTime(currentSynth.osc2.wsLfoAmount || 0, effectiveTime);
-    
-
-        // --- Amp Envelope Fix ---
-        const ampAttackTime = 0.002; // Hardcoded fast attack for punch
-        synthGraph.vca.gain.cancelScheduledValues(attackStartTime); // Ensure a clean slate
-        synthGraph.vca.gain.setValueAtTime(0, attackStartTime);
-        // Schedule the attack
-        synthGraph.vca.gain.setTargetAtTime(1, attackStartTime, timeConstant(ampAttackTime));
-        // Schedule the decay to start *after* the attack has completed
-        synthGraph.vca.gain.setTargetAtTime(0, attackStartTime + ampAttackTime, timeConstant(ampEnv.decay));
-
-
-        // Filter Env (ADS, with D also being Release time)
-        const applyFilterEnv = (filterParam: AudioParam, baseFreq: number) => {
-            filterParam.cancelScheduledValues(attackStartTime);
-            filterParam.setValueAtTime(baseFreq, attackStartTime);
-            const peakFreq = baseFreq + filter.envAmount;
-            // Exponential attack
-            filterParam.setTargetAtTime(peakFreq, attackStartTime, timeConstant(filterEnv.attack));
-            const sustainFreq = baseFreq + (filter.envAmount * filterEnv.sustain);
-            // Decay to sustain level
-            filterParam.setTargetAtTime(sustainFreq, attackStartTime + filterEnv.attack, timeConstant(filterEnv.decay));
-            // Release (at gate end)
-            filterParam.cancelScheduledValues(gateEndTime);
-            // BUG FIX: Removed erroneous `setValueAtTime` which caused a jump in the filter cutoff on release.
-            // The `setTargetAtTime` below now correctly starts the release ramp from the value the
-            // parameter has at `gateEndTime`.
-            filterParam.setTargetAtTime(baseFreq, gateEndTime, timeConstant(filterEnv.decay)); // Release time = decay time
-        };
-
-        if (isStandard) {
-            applyFilterEnv(synthGraph.filterNode1.frequency, filter.cutoff);
-            if(filter.type.includes('24dB')) {
-                applyFilterEnv(synthGraph.filterNode2.frequency, filter.cutoff);
-            }
-        }
-    
-        const finalStopTime = gateEndTime + filterEnv.decay * 5; // Ensure note stops after release
-        oscSource1.start(effectiveTime);
-        oscSource2.start(effectiveTime);
-        oscSource1.stop(finalStopTime);
-        oscSource2.stop(finalStopTime);
+        nodes.lfo1_ws1_modGain.gain.setValueAtTime(currentSynth.osc1.wsLfoAmount || 0, effectiveTime);
+        nodes.lfo1_ws2_modGain.gain.setValueAtTime(currentSynth.osc2.wsLfoAmount || 0, effectiveTime);
         
-        activeNoteSourcesRef.current = { oscSource1, oscSource2 };
+        // Connect pitch modulations
+        if (oscNode1) {
+            nodes.modGains['lfo1_osc1Pitch'].connect(oscNode1.detune);
+            nodes.modGains['lfo2_osc1Pitch'].connect(oscNode1.detune);
+        }
+        if (oscNode2) {
+            nodes.modGains['lfo1_osc2Pitch'].connect(oscNode2.detune);
+            nodes.modGains['lfo2_osc2Pitch'].connect(oscNode2.detune);
+        }
+
+        // --- ENVELOPES ---
+        if (!isLegato) {
+            // AMP ENV: Trigger only on new notes
+            nodes.vca.gain.cancelScheduledValues(effectiveTime);
+            nodes.vca.gain.setValueAtTime(0, effectiveTime);
+            nodes.vca.gain.setTargetAtTime(1, effectiveTime, timeConstant(0.002));
+            
+            // FILTER ENV: Trigger only on new notes
+            const applyFilterEnvAttack = (filterParam: AudioParam, baseValue: number) => {
+                filterParam.cancelScheduledValues(effectiveTime);
+                filterParam.setValueAtTime(baseValue, effectiveTime);
+                const peakValue = baseValue + filter.envAmount;
+                filterParam.setTargetAtTime(peakValue, effectiveTime, timeConstant(filterEnv.attack));
+                const sustainValue = baseValue + (filter.envAmount * filterEnv.sustain);
+                filterParam.setTargetAtTime(sustainValue, effectiveTime + filterEnv.attack, timeConstant(filterEnv.decay));
+            };
+            if(isStandard) {
+                applyFilterEnvAttack(nodes.filterNode1.frequency, baseCutoff);
+                if(filter.type.includes('24dB')) applyFilterEnvAttack(nodes.filterNode2.frequency, baseCutoff);
+            }
+
+            // PITCH ENV: Trigger only on new notes
+            if (osc1.sync && oscNode2) {
+                const pitchEnvAmount = osc2.pitchEnvAmount || 0;
+                const baseDetune = osc2.detune;
+                oscNode2.detune.cancelScheduledValues(effectiveTime);
+                oscNode2.detune.setValueAtTime(baseDetune, effectiveTime);
+                const peakDetune = baseDetune + pitchEnvAmount;
+                oscNode2.detune.setTargetAtTime(peakDetune, effectiveTime, timeConstant(filterEnv.attack));
+                const sustainDetune = baseDetune + (pitchEnvAmount * filterEnv.sustain);
+                oscNode2.detune.setTargetAtTime(sustainDetune, effectiveTime + filterEnv.attack, timeConstant(filterEnv.decay));
+            }
+
+        } else if (activeNoteRef.current) {
+            // LEGATO: Cancel the previously scheduled release
+            nodes.vca.gain.cancelScheduledValues(activeNoteRef.current.gateEndTime);
+            nodes.filterNode1.frequency.cancelScheduledValues(activeNoteRef.current.gateEndTime);
+            nodes.filterNode2.frequency.cancelScheduledValues(activeNoteRef.current.gateEndTime);
+            if (osc1.sync && oscNode2) oscNode2.detune.cancelScheduledValues(activeNoteRef.current.gateEndTime);
+        }
+
+        // --- Schedule RELEASE for the CURRENT note ---
+        // AMP ENV Release
+        nodes.vca.gain.setTargetAtTime(0, gateEndTime, timeConstant(ampEnv.decay));
+
+        // FILTER ENV Release
+        const applyFilterEnvRelease = (filterParam: AudioParam, baseValue: number) => {
+            filterParam.setTargetAtTime(baseValue, gateEndTime, timeConstant(filterEnv.decay));
+        };
+        if(isStandard) {
+            applyFilterEnvRelease(nodes.filterNode1.frequency, baseCutoff);
+            if(filter.type.includes('24dB')) applyFilterEnvRelease(nodes.filterNode2.frequency, baseCutoff);
+        }
+
+        // PITCH ENV Release
+        if (osc1.sync && oscNode2) {
+            oscNode2.detune.setTargetAtTime(osc2.detune, gateEndTime, timeConstant(filterEnv.decay));
+        }
+
+        activeNoteRef.current = { gateEndTime };
+
     }, [scheduleLfoRetrigger]);
 
     const loadSampleFromBlob = useCallback(async (blob: Blob, sampleId: number, name?: string) => {
