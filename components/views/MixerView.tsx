@@ -1,9 +1,10 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, MasterCompressorParams } from '../../types';
 import Fader from '../Fader';
 import { TOTAL_BANKS } from '../../constants';
 import CpuMeter from '../CpuMeter';
+import Pad from '../Pad';
 
 interface MixerViewProps {
     startMasterRecording: () => void;
@@ -16,10 +17,32 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
         bankVolumes, bankPans, bankMutes, bankSolos, 
         masterVolume, isMasterRecording, isMasterRecArmed, 
         isInitialized, isPlaying,
-        masterCompressorOn, masterCompressorParams
+        masterCompressorOn, masterCompressorParams,
+        compressorSnapshots
     } = state;
 
     const [viewMode, setViewMode] = useState<'mixer' | 'fx'>('mixer');
+
+    // State for compressor snapshots
+    const [snapshotMode, setSnapshotMode] = useState<'LOAD' | 'SAVE'>('LOAD');
+    const [snapshotPage, setSnapshotPage] = useState(0);
+    const [selectedSnapshotSlot, setSelectedSnapshotSlot] = useState<number | null>(null);
+    const [snapshotNameInput, setSnapshotNameInput] = useState('');
+
+     useEffect(() => {
+        if (snapshotMode === 'LOAD') {
+            setSelectedSnapshotSlot(null);
+        }
+    }, [snapshotMode]);
+
+    useEffect(() => {
+        if (snapshotMode === 'SAVE' && selectedSnapshotSlot !== null) {
+            const existingSnapshot = compressorSnapshots[selectedSnapshotSlot];
+            setSnapshotNameInput(existingSnapshot?.name || `Snap ${selectedSnapshotSlot + 1}`);
+        } else {
+            setSnapshotNameInput('');
+        }
+    }, [selectedSnapshotSlot, snapshotMode, compressorSnapshots]);
 
     const handleVolumeChange = (bankIndex: number, volume: number) => {
         dispatch({ type: ActionType.SET_BANK_VOLUME, payload: { bankIndex, volume } });
@@ -55,6 +78,36 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
 
     const handleCompressorParamChange = (param: keyof MasterCompressorParams, value: number) => {
         dispatch({ type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM, payload: { param, value } });
+    };
+
+    const handleSnapshotPadClick = (snapshotIndex: number) => {
+        if (snapshotMode === 'LOAD') {
+            const snapshot = compressorSnapshots[snapshotIndex];
+            if (snapshot) {
+                dispatch({ type: ActionType.LOAD_COMPRESSOR_SNAPSHOT, payload: snapshot });
+            }
+        } else { // SAVE mode
+            setSelectedSnapshotSlot(prev => (prev === snapshotIndex ? null : snapshotIndex));
+        }
+    };
+    
+    const handleSaveSnapshot = () => {
+        if (selectedSnapshotSlot === null || !snapshotNameInput.trim()) return;
+        const name = snapshotNameInput.trim();
+        dispatch({
+            type: ActionType.SAVE_COMPRESSOR_SNAPSHOT,
+            payload: { index: selectedSnapshotSlot, name, params: masterCompressorParams }
+        });
+        alert(`Saved snapshot "${name}" to slot ${selectedSnapshotSlot + 1}.`);
+        setSelectedSnapshotSlot(null);
+    };
+
+    const handleClearSnapshot = () => {
+        if (selectedSnapshotSlot === null) return;
+        const snapshotToClear = compressorSnapshots[selectedSnapshotSlot];
+        if (snapshotToClear && window.confirm(`Are you sure you want to clear snapshot "${snapshotToClear.name}"?`)) {
+            dispatch({ type: ActionType.CLEAR_COMPRESSOR_SNAPSHOT, payload: { index: selectedSnapshotSlot } });
+        }
     };
 
     const renderMixer = () => (
@@ -135,7 +188,7 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
     );
     
     const renderFx = () => (
-        <div className="w-full flex flex-col items-center space-y-3 p-2">
+        <div className="w-full flex flex-col items-center space-y-3 p-2 overflow-y-auto">
             <button
                 onClick={handleCompressorToggle}
                 className={`w-24 py-3 rounded font-bold text-white transition-colors ${masterCompressorOn ? 'bg-pink-500' : 'bg-slate-400'}`}
@@ -148,6 +201,61 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                 <Fader label="Knee" value={masterCompressorParams.knee} onChange={v => handleCompressorParamChange('knee', v)} min={0} max={40} step={1} defaultValue={30} displayPrecision={0} />
                 <Fader label="Attack" value={masterCompressorParams.attack} onChange={v => handleCompressorParamChange('attack', v)} min={0} max={1} step={0.001} defaultValue={0.003} displayPrecision={3} />
                 <Fader label="Release" value={masterCompressorParams.release} onChange={v => handleCompressorParamChange('release', v)} min={0.01} max={1} step={0.001} defaultValue={0.25} displayPrecision={3} />
+            </div>
+
+            <div className="w-full max-w-sm space-y-2 border-t-2 border-emerald-100 pt-3 mt-3">
+                <h3 className="text-center font-bold text-slate-600">Compressor Snapshots</h3>
+                <div className="flex justify-between items-center">
+                    <div className="flex space-x-1 flex-wrap">
+                        {[0,1,2,3].map(i => (
+                            <button key={i} onClick={() => setSnapshotPage(i)} className={`px-2 py-0.5 text-[10px] font-bold rounded ${snapshotPage === i ? 'bg-pink-400 text-white' : 'bg-emerald-200'}`}>P{i+1}</button>
+                        ))}
+                    </div>
+                    <div className="flex p-0.5 bg-emerald-200 rounded-lg">
+                        <button onClick={() => setSnapshotMode('LOAD')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${snapshotMode === 'LOAD' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}>Load</button>
+                        <button onClick={() => setSnapshotMode('SAVE')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${snapshotMode === 'SAVE' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}>Save</button>
+                    </div>
+                </div>
+
+                 {snapshotMode === 'SAVE' && (
+                    <div className="flex items-center space-x-1">
+                        {selectedSnapshotSlot !== null ? (
+                            <div className="flex-grow flex items-center space-x-1">
+                                <input 
+                                    type="text" 
+                                    value={snapshotNameInput}
+                                    onChange={(e) => setSnapshotNameInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSaveSnapshot()}
+                                    className="w-full bg-emerald-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-sky-400"
+                                    placeholder="Snapshot Name"
+                                />
+                                <button onClick={handleSaveSnapshot} className="bg-sky-500 text-white font-bold px-2 py-1 rounded text-xs">Save</button>
+                                <button onClick={handleClearSnapshot} disabled={!compressorSnapshots[selectedSnapshotSlot]} className="bg-rose-500 text-white font-bold px-2 py-1 rounded text-xs disabled:bg-slate-300">Clear</button>
+                            </div>
+                        ) : (
+                             <p className="text-xs text-slate-500 text-center py-1 w-full">Select a slot to save or clear</p>
+                        )}
+                    </div>
+                )}
+                
+                <div className="grid grid-cols-8 gap-1.5">
+                    {Array.from({ length: 16 }).map((_, i) => {
+                        const snapshotIndex = snapshotPage * 16 + i;
+                        const snapshot = compressorSnapshots[snapshotIndex];
+                        const isActive = snapshotMode === 'SAVE' && selectedSnapshotSlot === snapshotIndex;
+                        return (
+                            <Pad
+                                key={i}
+                                id={snapshotIndex}
+                                label={snapshot?.name.substring(0, 4) || ``}
+                                onClick={() => handleSnapshotPadClick(snapshotIndex)}
+                                isActive={isActive}
+                                hasContent={!!snapshot}
+                                padType="pattern"
+                            />
+                        );
+                    })}
+                </div>
             </div>
         </div>
     );
@@ -173,7 +281,7 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                     </button>
                 </div>
             </div>
-            <div className="flex-grow flex bg-white shadow-md p-2 rounded-lg">
+            <div className="flex-grow flex bg-white shadow-md p-2 rounded-lg overflow-hidden">
                 {viewMode === 'mixer' ? renderMixer() : renderFx()}
             </div>
         </div>

@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, Dispatch } from 'react';
-import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData, Synth, SynthPreset, ModMatrix, ModPatch } from '../types';
+import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData, Synth, SynthPreset, ModMatrix, ModPatch, MasterCompressorSnapshot } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK, OSC_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, LFO_WAVEFORMS, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES, LFO_SYNC_TRIGGERS } from '../constants';
 import SCALES from '../scales';
 
@@ -508,6 +508,7 @@ const initialState: AppState = {
         attack: 0.003,
         release: 0.25,
     },
+    compressorSnapshots: Array(64).fill(null),
     playbackTrackStates: Array.from({ length: TOTAL_BANKS }, () => ({ currentPart: 'A', partRepetition: 0 })),
     // Synth
     synth: initialSynthState,
@@ -515,7 +516,7 @@ const initialState: AppState = {
     isModMatrixMuted: false,
     synthPresets: defaultPresets,
     synthModPatches: Array(16).fill(null),
-    keyboardSource: 'SAMPLE',
+    keyboardSource: 'A',
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -1193,6 +1194,33 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 },
             };
         }
+        case ActionType.SAVE_COMPRESSOR_SNAPSHOT: {
+            const { index, name, params } = action.payload;
+            const newSnapshots = [...state.compressorSnapshots];
+            if (index >= 0 && index < newSnapshots.length) {
+                newSnapshots[index] = {
+                    id: index,
+                    name,
+                    params: JSON.parse(JSON.stringify(params)),
+                };
+            }
+            return { ...state, compressorSnapshots: newSnapshots };
+        }
+        case ActionType.LOAD_COMPRESSOR_SNAPSHOT: {
+            const snapshot = action.payload;
+            return {
+                ...state,
+                masterCompressorParams: JSON.parse(JSON.stringify(snapshot.params)),
+            };
+        }
+        case ActionType.CLEAR_COMPRESSOR_SNAPSHOT: {
+            const { index } = action.payload;
+            const newSnapshots = [...state.compressorSnapshots];
+            if (index >= 0 && index < newSnapshots.length) {
+                newSnapshots[index] = null;
+            }
+            return { ...state, compressorSnapshots: newSnapshots };
+        }
         case ActionType.SET_PLAYBACK_TRACK_STATE: {
             const { bankIndex, state: playbackState } = action.payload;
             const newPlaybackTrackStates = [...state.playbackTrackStates];
@@ -1446,8 +1474,33 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 synthModMatrix: JSON.parse(JSON.stringify(preset.modMatrix)),
             };
         }
-        case ActionType.SET_KEYBOARD_SOURCE:
-            return { ...state, keyboardSource: action.payload };
+        case ActionType.SET_KEYBOARD_SOURCE: {
+            const newSource = action.payload;
+            let newActiveSampleBank = state.activeSampleBank;
+            let newActiveSampleId = state.activeSampleId;
+
+            if (newSource === 'A') {
+                newActiveSampleBank = 0;
+            } else if (newSource === 'B') {
+                newActiveSampleBank = 1;
+            } else if (newSource === 'C') {
+                newActiveSampleBank = 2;
+            } else if (newSource === 'SYNTH') {
+                newActiveSampleBank = 3;
+            }
+            
+            // If the bank changes, set the active sample to the first pad of that bank
+            if (newActiveSampleBank !== state.activeSampleBank) {
+                newActiveSampleId = newActiveSampleBank * PADS_PER_BANK;
+            }
+
+            return { 
+                ...state, 
+                keyboardSource: newSource, 
+                activeSampleBank: newActiveSampleBank,
+                activeSampleId: newActiveSampleId,
+            };
+        }
         default:
             return state;
     }

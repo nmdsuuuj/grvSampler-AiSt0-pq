@@ -368,8 +368,8 @@ export const useAudioEngine = () => {
             const shaper2 = audioContext.createWaveShaper();
             const shaper2InputGain = audioContext.createGain();
             const mixer = audioContext.createGain();
-            const fm1Gain = audioContext.createGain();
-            const fm2Gain = audioContext.createGain();
+            const fm1Gain = audioContext.createGain(); // Modulates osc1 freq
+            const fm2Gain = audioContext.createGain(); // Modulates osc2 freq
             const preFilterGain = audioContext.createGain();
             const filterNode1 = audioContext.createBiquadFilter();
             const filterNode2 = audioContext.createBiquadFilter();
@@ -437,6 +437,11 @@ export const useAudioEngine = () => {
             const modGains: { [key: string]: GainNode } = {};
             const modSources = ['lfo1', 'lfo2'];
             const modDestinations = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'osc1Wave', 'osc2Wave', 'filterCutoff', 'filterQ'];
+            
+            // Connect static FM destination nodes
+            if (oscSource1 instanceof OscillatorNode) fm1Gain.connect(oscSource1.frequency);
+            if (oscSource2 instanceof OscillatorNode) fm2Gain.connect(oscSource2.frequency);
+
 
             modSources.forEach(source => {
                 const modSourceNode = source === 'lfo1' ? lfo1 : lfo2;
@@ -448,8 +453,6 @@ export const useAudioEngine = () => {
 
                     if (dest === 'osc1FM') gainNode.connect(fm1Gain.gain);
                     if (dest === 'osc2FM') gainNode.connect(fm2Gain.gain);
-                    if (dest === 'osc1Wave' && source === 'lfo2') gainNode.connect(shaper1InputGain.gain);
-                    if (dest === 'osc2Wave' && source === 'lfo2') gainNode.connect(shaper2InputGain.gain);
                     if (dest === 'filterCutoff') {
                         gainNode.connect(filterNode1.frequency);
                         gainNode.connect(filterNode2.frequency);
@@ -458,6 +461,8 @@ export const useAudioEngine = () => {
                          gainNode.connect(filterNode1.Q);
                          gainNode.connect(filterNode2.Q);
                     }
+                    if (dest === 'osc1Pitch' && oscSource1 instanceof OscillatorNode) gainNode.connect(oscSource1.detune);
+                    if (dest === 'osc2Pitch' && oscSource2 instanceof OscillatorNode) gainNode.connect(oscSource2.detune);
                 });
             });
             
@@ -484,9 +489,81 @@ export const useAudioEngine = () => {
                 osc1Type: state.synth.osc1.type,
                 osc2Type: state.synth.osc2.type,
             };
+
+            // --- Robust initial FM connection ---
+            if (oscSource1 instanceof OscillatorNode && oscSource2 instanceof OscillatorNode) {
+                oscSource1.connect(fm2Gain);
+                oscSource2.connect(fm1Gain);
+            }
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [audioContext]);
+
+    // --- ARCHITECTURAL FIX: Effect for handling waveform changes safely ---
+    useEffect(() => {
+        if (!audioContext || !synthGraphRef.current) return;
+
+        const { nodes } = synthGraphRef.current;
+        
+        const handleWaveformChange = (oscIndex: 1 | 2) => {
+            const currentType = oscIndex === 1 ? synth.osc1.type : synth.osc2.type;
+            const oldType = oscIndex === 1 ? synthGraphRef.current.osc1Type : synthGraphRef.current.osc2Type;
+
+            if (currentType === oldType) return; // No change needed
+
+            const oldSource = oscIndex === 1 ? nodes.oscSource1 : nodes.oscSource2;
+            const shaperInput = oscIndex === 1 ? nodes.shaper1InputGain : nodes.shaper2InputGain;
+
+            // 1. Disconnect and stop the old source
+            try { oldSource.disconnect(); } catch (e) { /* ignore */ }
+            try { oldSource.stop(); } catch (e) { /* ignore */ }
+
+            // 2. Create and start the new source
+            const newSource = createOscillatorSource(currentType, audioContext);
+            newSource.start();
+            newSource.connect(shaperInput); // Connect to main audio path
+
+            // 3. Update the graph reference
+            if (oscIndex === 1) {
+                nodes.oscSource1 = newSource;
+                synthGraphRef.current.osc1Type = currentType;
+            } else {
+                nodes.oscSource2 = newSource;
+                synthGraphRef.current.osc2Type = currentType;
+            }
+            
+            // 4. Update LFO->Pitch and FM routing after the change
+            const { oscSource1, oscSource2, modGains, fm1Gain, fm2Gain } = nodes;
+            
+            // Disconnect old pitch modulations
+            const lfo1PitchGain = oscIndex === 1 ? modGains['lfo1_osc1Pitch'] : modGains['lfo1_osc2Pitch'];
+            const lfo2PitchGain = oscIndex === 1 ? modGains['lfo2_osc1Pitch'] : modGains['lfo2_osc2Pitch'];
+            if (oldSource instanceof OscillatorNode) {
+                 try { lfo1PitchGain.disconnect(oldSource.detune); } catch(e){}
+                 try { lfo2PitchGain.disconnect(oldSource.detune); } catch(e){}
+            }
+
+            // Connect new pitch modulations
+            if (newSource instanceof OscillatorNode) {
+                lfo1PitchGain.connect(newSource.detune);
+                lfo2PitchGain.connect(newSource.detune);
+            }
+
+            // Disconnect all FM sources
+            try { oscSource1.disconnect(fm2Gain); } catch(e){}
+            try { oscSource2.disconnect(fm1Gain); } catch(e){}
+
+            // Reconnect FM sources if both are oscillators
+            if (oscSource1 instanceof OscillatorNode && oscSource2 instanceof OscillatorNode) {
+                oscSource1.connect(fm2Gain);
+                oscSource2.connect(fm1Gain);
+            }
+        };
+        
+        handleWaveformChange(1);
+        handleWaveformChange(2);
+
+    }, [synth.osc1.type, synth.osc2.type, audioContext, synth]);
     
     // --- State Synchronization Effect ---
     useEffect(() => {
@@ -713,36 +790,8 @@ export const useAudioEngine = () => {
         const isLegato = activeNoteRef.current !== null && effectiveTime < activeNoteRef.current.gateEndTime;
         const gateEndTime = effectiveTime + globalGateTime;
 
-        // --- Dynamic Oscillator Waveform Swapping ---
-        const handleWaveformChange = (oscIndex: 1 | 2) => {
-            const currentType = oscIndex === 1 ? currentSynth.osc1.type : currentSynth.osc2.type;
-            const graphType = oscIndex === 1 ? synthGraph.osc1Type : synthGraph.osc2Type;
-            if (currentType === graphType) return;
-    
-            const oldSource = oscIndex === 1 ? synthGraph.nodes.oscSource1 : synthGraph.nodes.oscSource2;
-            try { oldSource.stop(); } catch(e) {}
-    
-            const newSource = createOscillatorSource(currentType, ctx);
-            newSource.start();
-    
-            if (oscIndex === 1) {
-                newSource.connect(synthGraph.nodes.shaper1InputGain);
-                if (newSource instanceof OscillatorNode) {
-                    newSource.connect(synthGraph.nodes.fm2Gain);
-                }
-                synthGraph.nodes.oscSource1 = newSource;
-                synthGraph.osc1Type = currentType;
-            } else {
-                newSource.connect(synthGraph.nodes.shaper2InputGain);
-                if (newSource instanceof OscillatorNode) {
-                    newSource.connect(synthGraph.nodes.fm1Gain);
-                }
-                synthGraph.nodes.oscSource2 = newSource;
-                synthGraph.osc2Type = currentType;
-            }
-        };
-        handleWaveformChange(1);
-        handleWaveformChange(2);
+        // The complex graph-rewiring logic has been moved to its own useEffect,
+        // making this function much lighter and more stable.
 
         const { nodes } = synthGraph;
         const oscNode1 = nodes.oscSource1 instanceof OscillatorNode ? nodes.oscSource1 : null;
@@ -846,23 +895,20 @@ export const useAudioEngine = () => {
         nodes.lfo1_ws1_modGain.gain.setValueAtTime(currentSynth.osc1.wsLfoAmount || 0, effectiveTime);
         nodes.lfo1_ws2_modGain.gain.setValueAtTime(currentSynth.osc2.wsLfoAmount || 0, effectiveTime);
         
-        // Connect pitch modulations
-        if (oscNode1) {
-            nodes.modGains['lfo1_osc1Pitch'].connect(oscNode1.detune);
-            nodes.modGains['lfo2_osc1Pitch'].connect(oscNode1.detune);
-        }
-        if (oscNode2) {
-            nodes.modGains['lfo1_osc2Pitch'].connect(oscNode2.detune);
-            nodes.modGains['lfo2_osc2Pitch'].connect(oscNode2.detune);
-        }
-
         // --- ENVELOPES ---
+        // ** FIX: Implement true AD envelope for Amp Env **
+        // The Amp envelope now ignores globalGateTime and starts decaying immediately.
+        // Its length is controlled solely by ampEnv.decay.
+        nodes.vca.gain.cancelScheduledValues(effectiveTime);
+        nodes.vca.gain.setValueAtTime(0, effectiveTime);
+        // Short attack
+        nodes.vca.gain.setTargetAtTime(1, effectiveTime, timeConstant(0.002));
+        // Start decaying immediately after the attack.
+        nodes.vca.gain.setTargetAtTime(0, effectiveTime + 0.002, timeConstant(ampEnv.decay));
+
+
+        // ** Filter and Pitch envelopes still respect the gate for ADS(R) behavior **
         if (!isLegato) {
-            // AMP ENV: Trigger only on new notes
-            nodes.vca.gain.cancelScheduledValues(effectiveTime);
-            nodes.vca.gain.setValueAtTime(0, effectiveTime);
-            nodes.vca.gain.setTargetAtTime(1, effectiveTime, timeConstant(0.002));
-            
             // FILTER ENV: Trigger only on new notes
             const applyFilterEnvAttack = (filterParam: AudioParam, baseValue: number) => {
                 filterParam.cancelScheduledValues(effectiveTime);
@@ -890,17 +936,13 @@ export const useAudioEngine = () => {
             }
 
         } else if (activeNoteRef.current) {
-            // LEGATO: Cancel the previously scheduled release
-            nodes.vca.gain.cancelScheduledValues(activeNoteRef.current.gateEndTime);
+            // LEGATO: Cancel the previously scheduled release for filter/pitch envelopes
             nodes.filterNode1.frequency.cancelScheduledValues(activeNoteRef.current.gateEndTime);
             nodes.filterNode2.frequency.cancelScheduledValues(activeNoteRef.current.gateEndTime);
             if (osc1.sync && oscNode2) oscNode2.detune.cancelScheduledValues(activeNoteRef.current.gateEndTime);
         }
 
-        // --- Schedule RELEASE for the CURRENT note ---
-        // AMP ENV Release
-        nodes.vca.gain.setTargetAtTime(0, gateEndTime, timeConstant(ampEnv.decay));
-
+        // --- Schedule RELEASE for FILTER and PITCH only ---
         // FILTER ENV Release
         const applyFilterEnvRelease = (filterParam: AudioParam, baseValue: number) => {
             filterParam.setTargetAtTime(baseValue, gateEndTime, timeConstant(filterEnv.decay));
@@ -1114,7 +1156,7 @@ export const useAudioEngine = () => {
             a.download = `GrvSmp_${timestamp}_${bpmString}.wav`;
             a.click();
             window.URL.revokeObjectURL(url);
-            a.remove();
+a.remove();
             masterGainRef.current?.disconnect(masterDestinationRef.current);
         };
 

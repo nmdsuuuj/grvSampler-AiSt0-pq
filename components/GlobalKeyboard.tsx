@@ -42,7 +42,9 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
         // Handle real-time recording
         if (seqMode === 'REC' && isPlaying) {
             const isSynth = keyboardSource === 'SYNTH';
-            if (isSynth && activeSampleBank === 3) {
+            if (isSynth) {
+                // For synth, the bank is always 3. The activeSampleId will be within the synth bank range (24-31)
+                // because the reducer updates it when the source changes to SYNTH.
                 const currentStep = currentSteps[3];
                 const activePatternId = activePatternIds[3];
                 if (currentStep >= 0) {
@@ -51,10 +53,12 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                         payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: finalRelativeDetune }
                     });
                 }
-            } else if (!isSynth && activeSampleBank !== 3) {
+            } else { // 'A', 'B', or 'C'
+                 // The reducer ensures activeSampleBank matches the keyboardSource ('A' -> 0, etc.)
                  const currentStep = currentSteps[activeSampleBank];
                  const activePatternId = activePatternIds[activeSampleBank];
                  if (currentStep >= 0) {
+                    // And activeSampleId is also correct because the reducer sets it.
                     dispatch({
                         type: ActionType.RECORD_STEP,
                         payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: finalRelativeDetune }
@@ -118,19 +122,17 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                     </button>
                 </div>
 
-                <div className="flex w-1/3 justify-center p-0.5 bg-emerald-200 rounded-lg">
-                    <button 
-                        onClick={() => dispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: 'SAMPLE' })}
-                        className={`flex-grow py-1 text-xs font-bold rounded-md transition-colors ${keyboardSource === 'SAMPLE' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
-                    >
-                        SAMPLE
-                    </button>
-                    <button 
-                        onClick={() => dispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: 'SYNTH' })}
-                        className={`flex-grow py-1 text-xs font-bold rounded-md transition-colors ${keyboardSource === 'SYNTH' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
-                    >
-                        SYNTH
-                    </button>
+                <div className="flex w-1/2 justify-center p-0.5 bg-emerald-200 rounded-lg">
+                    {/* FIX: Changed 'Synth' to 'SYNTH' to match the type definition. */}
+                    {(['A', 'B', 'C', 'SYNTH'] as const).map(source => (
+                        <button
+                            key={source}
+                            onClick={() => dispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: source })}
+                            className={`flex-grow py-1 text-xs font-bold rounded-md transition-colors ${keyboardSource === source ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
+                        >
+                            {source}
+                        </button>
+                    ))}
                 </div>
 
                 <div className="flex items-center space-x-1">
@@ -175,15 +177,15 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                 {PHYSICAL_KEYBOARD_LAYOUT.filter(k => k.type === 'black').map((keyInfo) => {
                     const cents = keyboardNotesInCents[keyInfo.chromaticIndex];
                     const { name, offset } = formatNoteName(cents);
-                     return (
-                        <button
+                    return (
+                         <button
                             key={keyInfo.chromaticIndex}
                             onMouseDown={() => handleNotePlay(cents)}
-                            className={`absolute top-0 w-[9.375%] h-[60%] border-2 rounded-md flex flex-col items-center justify-end p-1 transition-colors z-10 text-white bg-slate-800 border-slate-600 active:bg-pink-500 ${keyInfo.position}`}
+                            className={`absolute w-[8.5%] h-14 border-2 rounded-md flex flex-col items-center justify-end p-1 transition-colors bg-slate-800 text-white border-slate-600 active:bg-pink-500 ${keyInfo.position}`}
                         >
                             <span className="font-bold text-base">{name}</span>
-                            {offset !== 0 && <span className="text-[9px] text-slate-400">{offset > 0 ? '+' : ''}{offset}c</span>}
-                             <span className="text-[10px] text-slate-300">{keyInfo.pcKey}</span>
+                            {offset !== 0 && <span className="text-[10px] text-slate-300">{offset > 0 ? '+' : ''}{offset}c</span>}
+                            <span className="text-[10px] text-slate-400">{keyInfo.pcKey}</span>
                         </button>
                     );
                 })}

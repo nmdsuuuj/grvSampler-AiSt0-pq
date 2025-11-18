@@ -50,6 +50,12 @@ export interface MasterCompressorParams {
     release: number;   // seconds, 0 to 1
 }
 
+export interface MasterCompressorSnapshot {
+    id: number;
+    name: string;
+    params: MasterCompressorParams;
+}
+
 export interface PlaybackParams {
     detune: number | null;
     velocity: number;
@@ -197,6 +203,7 @@ export interface AppState {
     bankClipboard: BankClipboardData | null;
     masterCompressorOn: boolean;
     masterCompressorParams: MasterCompressorParams;
+    compressorSnapshots: (MasterCompressorSnapshot | null)[];
     playbackTrackStates: {
         currentPart: 'A' | 'B';
         partRepetition: number;
@@ -207,7 +214,7 @@ export interface AppState {
     isModMatrixMuted: boolean;
     synthPresets: (SynthPreset | null)[];
     synthModPatches: (ModPatch | null)[];
-    keyboardSource: 'SAMPLE' | 'SYNTH';
+    keyboardSource: 'A' | 'B' | 'C' | 'SYNTH';
 }
 
 export enum ActionType {
@@ -242,6 +249,9 @@ export enum ActionType {
     PASTE_SAMPLE,
     TOGGLE_MASTER_COMPRESSOR,
     UPDATE_MASTER_COMPRESSOR_PARAM,
+    SAVE_COMPRESSOR_SNAPSHOT,
+    LOAD_COMPRESSOR_SNAPSHOT,
+    CLEAR_COMPRESSOR_SNAPSHOT,
     SET_PLAYBACK_TRACK_STATE,
     RECORD_STEP,
     SET_KEY,
@@ -310,6 +320,9 @@ export type Action =
     | { type: ActionType.PASTE_SAMPLE }
     | { type: ActionType.TOGGLE_MASTER_COMPRESSOR }
     | { type: ActionType.UPDATE_MASTER_COMPRESSOR_PARAM; payload: { param: keyof MasterCompressorParams; value: number } }
+    | { type: ActionType.SAVE_COMPRESSOR_SNAPSHOT; payload: { index: number, name: string, params: MasterCompressorParams } }
+    | { type: ActionType.LOAD_COMPRESSOR_SNAPSHOT; payload: MasterCompressorSnapshot }
+    | { type: ActionType.CLEAR_COMPRESSOR_SNAPSHOT; payload: { index: number } }
     | { type: ActionType.SET_PLAYBACK_TRACK_STATE; payload: { bankIndex: number; state: { currentPart: 'A' | 'B'; partRepetition: number; } } }
     | { type: ActionType.RECORD_STEP; payload: { patternId: number; sampleId: number; step: number; detune: number } }
     | { type: ActionType.SET_KEY, payload: number }
@@ -343,4 +356,4 @@ export type Action =
     | { type: ActionType.CLEAR_SYNTH_PRESET_AT_INDEX; payload: { index: number } }
     | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset }
     // Global Keyboard
-    | { type: ActionType.SET_KEYBOARD_SOURCE; payload: 'SAMPLE' | 'SYNTH' };
+    | { type: ActionType.SET_KEYBOARD_SOURCE; payload: 'A' | 'B' | 'C' | 'SYNTH' };

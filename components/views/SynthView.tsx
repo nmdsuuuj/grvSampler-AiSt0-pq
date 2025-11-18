@@ -21,12 +21,22 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
     const [presetBank, setPresetBank] = useState(0);
     const [selectedPresetSlot, setSelectedPresetSlot] = useState<number | null>(null);
     const [presetMode, setPresetMode] = useState<PresetMode>('LOAD');
+    const [presetNameInput, setPresetNameInput] = useState('');
 
     useEffect(() => {
         if (presetMode === 'LOAD') {
             setSelectedPresetSlot(null);
         }
     }, [presetMode]);
+
+    useEffect(() => {
+        if (presetMode === 'SAVE' && selectedPresetSlot !== null) {
+            const existingPreset = synthPresets[selectedPresetSlot];
+            setPresetNameInput(existingPreset?.name || `Preset ${selectedPresetSlot + 1}`);
+        } else {
+            setPresetNameInput('');
+        }
+    }, [selectedPresetSlot, presetMode, synthPresets]);
 
     const handleParamChange = (paramPath: string, value: string | number | boolean) => {
         dispatch({ type: ActionType.UPDATE_SYNTH_PARAM, payload: { path: paramPath, value } });
@@ -46,16 +56,14 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
     };
 
     const handleSavePreset = () => {
-        if (selectedPresetSlot === null) return;
-        const currentPreset = synthPresets[selectedPresetSlot];
-        const name = prompt("Enter preset name:", currentPreset?.name || `Preset ${selectedPresetSlot + 1}`);
-        if (name) {
-            dispatch({
-                type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX,
-                payload: { index: selectedPresetSlot, name, synth, matrix: synthModMatrix }
-            });
-            alert(`Saved preset "${name}" to slot ${selectedPresetSlot + 1}.`);
-        }
+        if (selectedPresetSlot === null || !presetNameInput.trim()) return;
+        const name = presetNameInput.trim();
+        dispatch({
+            type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX,
+            payload: { index: selectedPresetSlot, name, synth, matrix: synthModMatrix }
+        });
+        alert(`Saved preset "${name}" to slot ${selectedPresetSlot + 1}.`);
+        setSelectedPresetSlot(null);
     };
 
     const handleClearPreset = () => {
@@ -357,10 +365,26 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                             </div>
 
                             {presetMode === 'SAVE' && (
-                                <div className="flex space-x-1 items-center justify-end">
-                                    <button onClick={handleRandomizeAll} className="bg-rose-400 text-white font-bold px-2 py-0.5 rounded text-xs">RndAll</button>
-                                    <button onClick={handleSavePreset} disabled={selectedPresetSlot === null} className="bg-sky-500 text-white font-bold px-2 py-0.5 rounded text-xs disabled:bg-slate-300">Save</button>
-                                    <button onClick={handleClearPreset} disabled={selectedPresetSlot === null || !synthPresets[selectedPresetSlot]} className="bg-rose-500 text-white font-bold px-2 py-0.5 rounded text-xs disabled:bg-slate-300">Clear</button>
+                                <div className="flex space-x-1 items-center">
+                                    <div className="flex-grow">
+                                        {selectedPresetSlot !== null ? (
+                                            <div className="flex items-center space-x-1">
+                                                <input 
+                                                    type="text" 
+                                                    value={presetNameInput}
+                                                    onChange={(e) => setPresetNameInput(e.target.value)}
+                                                    onKeyDown={(e) => e.key === 'Enter' && handleSavePreset()}
+                                                    className="w-full bg-emerald-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-sky-400"
+                                                    placeholder="Preset Name"
+                                                />
+                                                <button onClick={handleSavePreset} className="bg-sky-500 text-white font-bold px-2 py-1 rounded text-xs">Save</button>
+                                                <button onClick={handleClearPreset} disabled={!synthPresets[selectedPresetSlot]} className="bg-rose-500 text-white font-bold px-2 py-1 rounded text-xs disabled:bg-slate-300">Clear</button>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-slate-500 text-center py-1">Select a slot to save or clear</p>
+                                        )}
+                                    </div>
+                                    <button onClick={handleRandomizeAll} className="bg-rose-400 text-white font-bold px-2 py-1 rounded text-xs whitespace-nowrap">Rnd All</button>
                                 </div>
                             )}
 

@@ -141,11 +141,11 @@ const App: React.FC = () => {
           const sampleIdToTrigger = activeSampleBank * PADS_PER_BANK + (padNumber - 1);
           appDispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: sampleIdToTrigger });
 
+          // This logic is based on activeSampleBank, which is correct because keys 1-8 are for the currently focused bank.
+          // Per user request, this no longer changes the global keyboard source.
           if (activeSampleBank === 3) {
-            appDispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: 'SYNTH' });
-            playSynthNote(1200, 0); 
+            playSynthNote(1200, 0); // Play a default note for synth track pads
           } else {
-            appDispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: 'SAMPLE' });
             if (samples[sampleIdToTrigger]?.buffer) {
                  playSample(sampleIdToTrigger, 0);
             }
@@ -197,7 +197,7 @@ const App: React.FC = () => {
     
             if (seqMode === 'REC' && isPlaying) {
                 const isSynth = keyboardSource === 'SYNTH';
-                if (isSynth && activeSampleBank === 3) {
+                if (isSynth) {
                     const currentStep = currentSteps[3];
                     const activePatternId = activePatternIds[3];
                     if (currentStep >= 0) {
@@ -206,7 +206,7 @@ const App: React.FC = () => {
                             payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: detuneWithKeyAndOctave }
                         });
                     }
-                } else if (!isSynth && activeSampleBank !== 3) {
+                } else { // 'A', 'B', or 'C'
                      const currentStep = currentSteps[activeSampleBank];
                      const activePatternId = activePatternIds[activeSampleBank];
                      if (currentStep >= 0) {
