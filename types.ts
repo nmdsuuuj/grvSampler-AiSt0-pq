@@ -127,6 +127,7 @@ export interface SynthLFO {
     type: string; // Now a string to accommodate more types
     rate: number; // in Hz or index for sync mode
     rateMode: 'hz' | 'sync';
+    syncTrigger: string; // e.g., 'Free', 'Gate', '1 Bar'
 }
 
 export interface Synth {

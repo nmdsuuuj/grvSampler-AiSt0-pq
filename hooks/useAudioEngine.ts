@@ -645,6 +645,51 @@ export const useAudioEngine = () => {
 
     }, []);
 
+    const scheduleLfoRetrigger = useCallback((lfoIndex: number, time: number) => {
+        const { audioContext: ctx, synth: currentSynth, bpm } = stateRef.current;
+        const synthGraph = synthGraphRef.current;
+        if (!ctx || !synthGraph) return;
+
+        const lfo = lfoIndex === 0 ? currentSynth.lfo1 : currentSynth.lfo2;
+        const lfoNode = lfoIndex === 0 ? synthGraph.lfo1 : synthGraph.lfo2;
+
+        try {
+            lfoNode.stop(time);
+        } catch(e) {
+            // Can ignore error if it was already stopped
+        }
+
+        const newLfoNode = ctx.createOscillator();
+        newLfoNode.setPeriodicWave(createLfoWave(lfo.type, ctx));
+        
+        const syncRateData = LFO_SYNC_RATES[lfo.rate];
+        const rate = lfo.rateMode === 'sync' && syncRateData
+            ? (bpm / 60) / syncRateData.beats
+            : lfo.rate;
+        newLfoNode.frequency.setValueAtTime(rate, time);
+        
+        // Reconnect to all destinations
+        const sourceName = lfoIndex === 0 ? 'lfo1' : 'lfo2';
+        Object.keys(synthGraph.modGains).forEach(key => {
+            if (key.startsWith(sourceName)) {
+                newLfoNode.connect(synthGraph.modGains[key]);
+            }
+        });
+
+        if (lfoIndex === 0) {
+            newLfoNode.connect(synthGraph.lfo1_ws1_modGain);
+            newLfoNode.connect(synthGraph.lfo1_ws2_modGain);
+        }
+        
+        newLfoNode.start(time);
+        
+        if (lfoIndex === 0) {
+            synthGraph.lfo1 = newLfoNode;
+        } else {
+            synthGraph.lfo2 = newLfoNode;
+        }
+    }, []);
+
     const playSynthNote = useCallback((relativeDetune: number, scheduleTime: number) => {
         const { audioContext: ctx, synth: currentSynth, synthModMatrix: currentModMatrix, bpm, isModMatrixMuted } = stateRef.current;
         const synthGraph = synthGraphRef.current;
@@ -689,6 +734,15 @@ export const useAudioEngine = () => {
             }
         }
 
+        // --- LFO Gate Retrigger ---
+        if (currentSynth.lfo1.syncTrigger === 'Gate') {
+            scheduleLfoRetrigger(0, attackStartTime);
+        }
+        if (currentSynth.lfo2.syncTrigger === 'Gate') {
+            scheduleLfoRetrigger(1, attackStartTime);
+        }
+
+
         const oscSource1 = createOscillatorSource(osc1.type, ctx);
         const oscSource2 = createOscillatorSource(osc2.type, ctx);
         const oscNode1 = oscSource1 instanceof OscillatorNode ? oscSource1 : null;
@@ -708,23 +762,53 @@ export const useAudioEngine = () => {
         
         const absoluteDetune = relativeDetune + 6000;
         const baseFreq = 440 * Math.pow(2, (absoluteDetune - 6900) / 1200);
-        
+
+        const gateEndTime = attackStartTime + globalGateTime;
+        const timeConstant = (duration: number) => Math.max(0.001, duration / 5);
+
         if (oscNode1) {
             oscNode1.frequency.setValueAtTime(baseFreq * Math.pow(2, osc1.octave), effectiveTime);
             oscNode1.detune.setValueAtTime(osc1.detune, effectiveTime);
-            if(osc1.sync && oscNode1 && oscNode2) {
-                oscNode1.connect(oscNode2.frequency);
-            }
         }
+
         if (oscNode2) {
             oscNode2.frequency.setValueAtTime(baseFreq * Math.pow(2, osc2.octave), effectiveTime);
-            oscNode2.detune.setValueAtTime(osc2.detune, effectiveTime);
+            
+            // P.ENV IMPLEMENTATION for Hard Sync
+            if (osc1.sync) {
+                const pitchEnvAmount = osc2.pitchEnvAmount || 0;
+                const baseDetune = osc2.detune;
+                const filterEnvAttack = filterEnv.attack > 0 ? filterEnv.attack : 0.001;
+                
+                oscNode2.detune.cancelScheduledValues(attackStartTime);
+                oscNode2.detune.setValueAtTime(baseDetune, attackStartTime);
+
+                const peakDetune = baseDetune + pitchEnvAmount;
+                oscNode2.detune.setTargetAtTime(peakDetune, attackStartTime, timeConstant(filterEnvAttack));
+
+                const sustainDetune = baseDetune + (pitchEnvAmount * filterEnv.sustain);
+                oscNode2.detune.setTargetAtTime(sustainDetune, attackStartTime + filterEnvAttack, timeConstant(filterEnv.decay));
+                
+                oscNode2.detune.cancelScheduledValues(gateEndTime);
+                oscNode2.detune.setTargetAtTime(baseDetune, gateEndTime, timeConstant(filterEnv.decay));
+            } else {
+                // Default behavior
+                oscNode2.detune.setValueAtTime(osc2.detune, effectiveTime);
+            }
         }
         
-        synthGraph.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
+        // OSC MIX
+        const osc1Level = 1 - oscMix;
+        synthGraph.osc1Gain.gain.setValueAtTime(osc1Level, effectiveTime);
         synthGraph.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
+        
+        // FM DEPTH & SYNC
         synthGraph.fm1Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc2.fmDepth : 0, effectiveTime);
-        synthGraph.fm2Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc1.fmDepth : 0, effectiveTime);
+        
+        // Hard sync is simulated by using OSC1 to heavily modulate OSC2's frequency.
+        // The user wants the fader to control the amount, not a hardcoded value.
+        const fm1to2Amount = osc1.fmDepth;
+        synthGraph.fm2Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? fm1to2Amount : 0, effectiveTime);
         
         synthGraph.shaper1.curve = makeDistortionCurve(osc1.waveshapeType, osc1.waveshapeAmount);
         synthGraph.shaper1.oversample = '4x';
@@ -833,8 +917,6 @@ export const useAudioEngine = () => {
         synthGraph.lfo1_ws1_modGain.gain.setValueAtTime(currentSynth.osc1.wsLfoAmount || 0, effectiveTime);
         synthGraph.lfo1_ws2_modGain.gain.setValueAtTime(currentSynth.osc2.wsLfoAmount || 0, effectiveTime);
     
-        const gateEndTime = attackStartTime + globalGateTime;
-        const timeConstant = (duration: number) => Math.max(0.001, duration / 5);
 
         // --- Amp Envelope Fix ---
         const ampAttackTime = 0.002; // Hardcoded fast attack for punch
@@ -878,7 +960,7 @@ export const useAudioEngine = () => {
         oscSource2.stop(finalStopTime);
         
         activeNoteSourcesRef.current = { oscSource1, oscSource2 };
-    }, []);
+    }, [scheduleLfoRetrigger]);
 
     const loadSampleFromBlob = useCallback(async (blob: Blob, sampleId: number, name?: string) => {
         const { audioContext: ctx, samples: currentSamples } = stateRef.current;
@@ -1091,5 +1173,5 @@ export const useAudioEngine = () => {
         dispatch({ type: ActionType.TOGGLE_MASTER_RECORDING });
     }, [dispatch]);
 
-    return { playSample, playSynthNote, loadSampleFromBlob, startRecording, stopRecording, startMasterRecording, stopMasterRecording };
+    return { playSample, playSynthNote, scheduleLfoRetrigger, loadSampleFromBlob, startRecording, stopRecording, startMasterRecording, stopMasterRecording };
 };

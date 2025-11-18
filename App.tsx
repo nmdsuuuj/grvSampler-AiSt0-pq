@@ -58,13 +58,14 @@ const App: React.FC = () => {
   const { 
     playSample, 
     playSynthNote,
+    scheduleLfoRetrigger,
     loadSampleFromBlob, 
     startRecording, 
     stopRecording,
     startMasterRecording,
     stopMasterRecording,
   } = useAudioEngine();
-  useSequencer(playSample, playSynthNote);
+  useSequencer(playSample, playSynthNote, scheduleLfoRetrigger);
 
   const handlePCKeyboardInput = useCallback((event: KeyboardEvent) => {
       if (event.repeat) return;

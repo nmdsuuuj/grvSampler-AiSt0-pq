@@ -1,6 +1,6 @@
 import React, { createContext, useReducer, Dispatch } from 'react';
 import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData, Synth, SynthPreset, ModMatrix, ModPatch } from '../types';
-import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK, OSC_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, LFO_WAVEFORMS, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES } from '../constants';
+import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK, OSC_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, LFO_WAVEFORMS, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES, LFO_SYNC_TRIGGERS } from '../constants';
 import SCALES from '../scales';
 
 const createEmptySteps = (): Step[][] =>
@@ -19,8 +19,8 @@ const initialSynthState: Synth = {
     filter: { type: 'Lowpass 24dB', cutoff: 8000, resonance: 1, envAmount: 3000 },
     filterEnv: { attack: 0.01, decay: 0.2, sustain: 0.5 },
     ampEnv: { decay: 0.5 },
-    lfo1: { type: 'Sine', rate: 5, rateMode: 'hz' },
-    lfo2: { type: 'Sine', rate: 2, rateMode: 'hz' },
+    lfo1: { type: 'Sine', rate: 5, rateMode: 'hz', syncTrigger: 'Free' },
+    lfo2: { type: 'Sine', rate: 2, rateMode: 'hz', syncTrigger: 'Free' },
     globalGateTime: 0.2,
 };
 
@@ -37,6 +37,7 @@ defaultPresets[0] = {
         filter: { type: 'Lowpass 24dB', cutoff: 800, resonance: 8, envAmount: 2500 },
         filterEnv: { attack: 0.01, decay: 0.3, sustain: 0.1 },
         ampEnv: { decay: 0.4 },
+        lfo1: { ...initialSynthState.lfo1, syncTrigger: 'Gate' },
     },
     modMatrix: {},
 };
@@ -75,7 +76,7 @@ defaultPresets[3] = {
         osc2: { ...initialSynthState.osc2, type: 'Saw Down', octave: -1, waveshapeAmount: 0.3, waveshapeType: 'Soft Clip' },
         filter: { type: 'Lowpass 24dB', cutoff: 400, resonance: 15, envAmount: 100 },
         ampEnv: { decay: 0.3 },
-        lfo1: { ...initialSynthState.lfo1, type: 'Sine', rate: 8 },
+        lfo1: { ...initialSynthState.lfo1, type: 'Sine', rate: LFO_SYNC_RATES.findIndex(r => r.label === '1/8'), rateMode: 'sync', syncTrigger: '1 Bar' },
     },
     modMatrix: { 'lfo1': { 'filterCutoff': 1.0 } },
 };
@@ -123,7 +124,7 @@ defaultPresets[7] = {
         osc2: { ...initialSynthState.osc2, type: 'Saw Down', octave: -2, waveshapeAmount: 0.5, waveshapeType: 'Hard Clip' },
         filter: { type: 'Lowpass 12dB', cutoff: 1500, resonance: 5, envAmount: 3000 },
         ampEnv: { decay: 0.2 },
-        lfo1: { ...initialSynthState.lfo1, type: 'Saw Down', rate: 15 },
+        lfo1: { ...initialSynthState.lfo1, type: 'Saw Down', rate: 15, syncTrigger: 'Gate' },
     },
     modMatrix: {},
 };
@@ -177,6 +178,7 @@ defaultPresets[11] = {
         filter: { type: 'Lowpass 12dB', cutoff: 12000, resonance: 0, envAmount: 0 },
         ampEnv: { decay: 0.15 },
         globalGateTime: 0.1,
+        lfo1: { ...initialSynthState.lfo1, syncTrigger: 'Gate' },
     },
     modMatrix: {},
 };
@@ -307,7 +309,7 @@ defaultPresets[21] = {
         osc1: { ...initialSynthState.osc1, type: 'Digital', waveshapeType: 'Resampler', waveshapeAmount: 0.8 },
         osc2: { ...initialSynthState.osc2, type: 'Square', octave: -1 },
         ampEnv: { decay: 0.1 },
-        lfo1: { ...initialSynthState.lfo1, type: 'S&H Steps', rate: 12 },
+        lfo1: { ...initialSynthState.lfo1, type: 'S&H Steps', rate: 12, syncTrigger: 'Gate' },
     },
     modMatrix: { lfo1: { osc1Pitch: 1.0 } },
 };
@@ -345,7 +347,7 @@ defaultPresets[24] = {
         osc1: { ...initialSynthState.osc1, type: 'Growl', octave: -2, waveshapeType: 'Chebyshev', waveshapeAmount: 0.6, wsLfoAmount: 0.8 },
         osc2: { ...initialSynthState.osc2, type: 'Wobble', octave: -1 },
         filter: { type: 'Lowpass 24dB', cutoff: 800, resonance: 8, envAmount: 0 },
-        lfo1: { ...initialSynthState.lfo1, type: 'Saw Up', rate: 2, rateMode: 'sync', },
+        lfo1: { ...initialSynthState.lfo1, type: 'Saw Up', rate: LFO_SYNC_RATES.findIndex(r => r.label === '1/8'), rateMode: 'sync', syncTrigger: '1 Bar' },
     },
     modMatrix: { lfo1: { filterCutoff: 1.0 } },
 };
@@ -1364,8 +1366,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 ampEnv: {
                     decay: randomFloat(0.1, 2),
                 },
-                lfo1: { ...state.synth.lfo1, type: random(LFO_WAVEFORMS), rate: randomLfo1Rate, rateMode: randomLfo1RateMode },
-                lfo2: { ...state.synth.lfo2, type: random(LFO_WAVEFORMS), rate: randomLfo2Rate, rateMode: randomLfo2RateMode },
+                lfo1: { ...state.synth.lfo1, type: random(LFO_WAVEFORMS), rate: randomLfo1Rate, rateMode: randomLfo1RateMode, syncTrigger: random(LFO_SYNC_TRIGGERS) },
+                lfo2: { ...state.synth.lfo2, type: random(LFO_WAVEFORMS), rate: randomLfo2Rate, rateMode: randomLfo2RateMode, syncTrigger: random(LFO_SYNC_TRIGGERS) },
                 globalGateTime: randomFloat(0.05, 1.5),
             };
             return { ...state, synth: newSynth };

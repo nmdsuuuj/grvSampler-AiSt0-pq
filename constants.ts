@@ -96,24 +96,48 @@ export const LFO_WAVEFORMS: string[] = [
     'Chaotic 1', 'Chaotic 2', 'Weird', 'S&H Steps'
 ];
 
+export const LFO_SYNC_TRIGGERS = ['Free', 'Gate', '1 Bar', '2 Bars', '3 Bars', '4 Bars', '6 Bars', '8 Bars'];
+
 export const LFO_SYNC_RATES: { label: string; beats: number }[] = [
-    { label: '1/32', beats: 0.125 },
-    { label: '1/16T', beats: 1/6 }, // 0.1666...
-    { label: '1/16', beats: 0.25 },
-    { label: '1/16D', beats: 0.375 },
-    { label: '1/8T', beats: 1/3 }, // 0.333...
-    { label: '1/8', beats: 0.5 },
-    { label: '1/8D', beats: 0.75 },
-    { label: '1/4T', beats: 2/3 }, // 0.666...
-    { label: '1/4', beats: 1 },
-    { label: '1/4D', beats: 1.5 },
-    { label: '1/2', beats: 2 },
-    { label: '1/2D', beats: 3 },
-    { label: '1 Bar', beats: 4 },
-    { label: '2 Bars', beats: 8 },
-    { label: '4 Bars', beats: 16 },
+    // Slowest
     { label: '8 Bars', beats: 32 },
+    { label: '7 Bars', beats: 28 },
+    { label: '6 Bars', beats: 24 },
+    { label: '5 Bars', beats: 20 },
+    { label: '4 Bars', beats: 16 },
+    { label: '3 Bars', beats: 12 },
+    { label: '9/4', beats: 9 },
+    { label: '2 Bars', beats: 8 },
+    { label: '7/4', beats: 7 },
+    { label: '1 Bar', beats: 4 },
+    { label: '9/8', beats: 4.5 },
+    { label: '7/8', beats: 3.5 },
+    { label: '1/2D', beats: 3 },
+    { label: '5/8', beats: 2.5 },
+    { label: '9/16', beats: 2.25 },
+    { label: '1/2', beats: 2 },
+    { label: '7/16', beats: 1.75 },
+    { label: '1/4D', beats: 1.5 },
+    { label: '5/16', beats: 1.25 },
+    { label: '1/4', beats: 1 },
+    { label: '4/5', beats: 0.8 },
+    { label: '1/4T', beats: 2 / 3 },
+    { label: '1/7 Bar', beats: 4 / 7 },
+    { label: '1/8D', beats: 0.75 },
+    { label: '1/8', beats: 0.5 },
+    { label: '4/10', beats: 0.4 },
+    { label: '1/8T', beats: 1 / 3 },
+    { label: '1/16D', beats: 0.375 },
+    { label: '1/16', beats: 0.25 },
+    { label: '1/16T', beats: 1 / 6 },
+    { label: '1/32D', beats: 0.1875 },
+    { label: '1/32', beats: 0.125 },
+    { label: '1/32T', beats: 1 / 12 },
+    { label: '1/64', beats: 0.0625 },
+    { label: '1/128', beats: 0.03125 },
+    // Fastest
 ];
+
 
 export const FILTER_TYPES: string[] = [
     'Lowpass 12dB',

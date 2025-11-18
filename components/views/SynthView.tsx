@@ -3,7 +3,7 @@ import { AppContext } from '../../context/AppContext';
 import { ActionType, SynthPreset } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
-import { OSC_WAVEFORMS, LFO_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES } from '../../constants';
+import { OSC_WAVEFORMS, LFO_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES, LFO_SYNC_TRIGGERS } from '../../constants';
 import ModulationNode from '../ModulationNode';
 
 interface SynthViewProps {
@@ -260,12 +260,16 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                                         {synth.lfo1.rateMode === 'sync' ? LFO_SYNC_RATES[synth.lfo1.rate]?.label : synth.lfo1.rate.toFixed(2) + ' Hz'}
                                     </div>
                                 </div>
-
                                 {synth.lfo1.rateMode === 'hz' ? (
                                     <Fader hideInfo value={lfoRateToFaderValue(synth.lfo1.rate)} onChange={v => handleParamChange('lfo1.rate', faderValueToLfoRate(v))} min={0} max={1} step={0.001} defaultValue={lfoRateToFaderValue(5)} />
                                 ) : (
                                     <Fader hideInfo value={synth.lfo1.rate} onChange={v => handleParamChange('lfo1.rate', v)} min={0} max={LFO_SYNC_RATES.length - 1} step={1} defaultValue={8} />
                                 )}
+                                <button onClick={() => {
+                                    const currentIndex = LFO_SYNC_TRIGGERS.indexOf(synth.lfo1.syncTrigger);
+                                    const nextIndex = (currentIndex + 1) % LFO_SYNC_TRIGGERS.length;
+                                    handleParamChange('lfo1.syncTrigger', LFO_SYNC_TRIGGERS[nextIndex]);
+                                }} className="bg-emerald-100 p-1 rounded text-xs font-bold text-slate-600 w-full">Sync Trig: {synth.lfo1.syncTrigger}</button>
                             </>, "w-1/2")}
                             {renderControlSection('', <>
                                 <div className="flex items-center space-x-2">
@@ -289,6 +293,11 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                                 ) : (
                                     <Fader hideInfo value={synth.lfo2.rate} onChange={v => handleParamChange('lfo2.rate', v)} min={0} max={LFO_SYNC_RATES.length - 1} step={1} defaultValue={8} />
                                 )}
+                                <button onClick={() => {
+                                    const currentIndex = LFO_SYNC_TRIGGERS.indexOf(synth.lfo2.syncTrigger);
+                                    const nextIndex = (currentIndex + 1) % LFO_SYNC_TRIGGERS.length;
+                                    handleParamChange('lfo2.syncTrigger', LFO_SYNC_TRIGGERS[nextIndex]);
+                                }} className="bg-emerald-100 p-1 rounded text-xs font-bold text-slate-600 w-full">Sync Trig: {synth.lfo2.syncTrigger}</button>
                             </>, "w-1/2")}
                         </div>
                         <div className="bg-white shadow-md p-1.5 rounded-lg flex-grow">

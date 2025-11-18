@@ -10,6 +10,7 @@ interface TrackState {
     partStep: number;
     currentPart: 'A' | 'B';
     partRepetition: number;
+    totalStepsElapsed: number; // For bar-based LFO retriggering
 }
 
 // --- Helper function for scale remapping ---
@@ -52,7 +53,8 @@ const remapDetuneToScale = (originalDetune: number, targetScaleName: string, tar
 
 export const useSequencer = (
     playSample: (sampleId: number, time: number, params: Partial<PlaybackParams>) => void,
-    playSynthNote: (detune: number, time: number) => void
+    playSynthNote: (detune: number, time: number) => void,
+    scheduleLfoRetrigger: (lfoIndex: number, time: number) => void
 ) => {
     const { state, dispatch } = useContext(AppContext);
     const { isPlaying, audioContext } = state;
@@ -74,6 +76,7 @@ export const useSequencer = (
             partStep: 0,
             currentPart: 'A',
             partRepetition: 0,
+            totalStepsElapsed: 0,
         }));
         // The reducer handles resetting currentSteps now when isPlaying becomes false
     };
@@ -101,11 +104,12 @@ export const useSequencer = (
             track.partStep = 0;
             track.currentPart = 'A';
             track.partRepetition = 0;
+            track.totalStepsElapsed = 0;
         });
 
         const scheduler = () => {
             // Use the ref to get the most up-to-date state inside the interval.
-            const { patterns, activePatternIds, grooveDepths, activeGrooveIds, bpm, activeSampleBank, samples } = sequencerStateRef.current;
+            const { patterns, activePatternIds, grooveDepths, activeGrooveIds, bpm, activeSampleBank, samples, synth } = sequencerStateRef.current;
             if(!audioContext) return;
 
             while (true) {
@@ -149,6 +153,21 @@ export const useSequencer = (
                 const isSynthBank = nextTrackIndex === 3;
 
                 if (isSynthBank) {
+                     // LFO Retriggering Logic
+                    const stepsPerBar = stepResolution; // e.g., if res is 16, 16 steps = 1 bar.
+                    if (stepsPerBar > 0 && trackState.totalStepsElapsed % stepsPerBar === 0) {
+                        const currentBar = Math.floor(trackState.totalStepsElapsed / stepsPerBar);
+                        [synth.lfo1, synth.lfo2].forEach((lfo, lfoIndex) => {
+                            const trigger = lfo.syncTrigger; // e.g. "2 Bars"
+                            if (trigger.endsWith('Bar') || trigger.endsWith('Bars')) {
+                                const barCount = parseInt(trigger.split(' ')[0], 10);
+                                if (!isNaN(barCount) && currentBar % barCount === 0) {
+                                    scheduleLfoRetrigger(lfoIndex, scheduledTime);
+                                }
+                            }
+                        });
+                    }
+                    
                     const activeNotes: { sampleId: number; stepInfo: Step }[] = [];
                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
                         const stepInfo = pattern.steps[sampleId]?.[displayStep];
@@ -221,6 +240,7 @@ export const useSequencer = (
                 const stepDuration = 60.0 / bpm / (stepResolution / 4);
                 trackState.nextStepTime += stepDuration;
                 trackState.partStep++;
+                trackState.totalStepsElapsed++;
 
                 const stepLength = isPartA ? pattern.stepLengthA : pattern.stepLengthB;
                 if (trackState.partStep >= stepLength) {
@@ -244,5 +264,5 @@ export const useSequencer = (
             }
         };
 
-    }, [isPlaying, audioContext, dispatch, playSample, playSynthNote]);
+    }, [isPlaying, audioContext, dispatch, playSample, playSynthNote, scheduleLfoRetrigger]);
 };
