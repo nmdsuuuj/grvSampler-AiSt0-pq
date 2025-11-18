@@ -5,7 +5,6 @@ import Pad from '../Pad';
 import { PADS_PER_BANK, STEPS_PER_PART, LOOP_PRESETS, PATTERNS_PER_BANK, STEPS_PER_PATTERN } from '../../constants';
 import Fader from '../Fader';
 import BankSelector from '../BankSelector';
-import KeyboardInput from '../KeyboardInput';
 import SCALES from '../../scales';
 import TEMPLATES, { Template } from '../../templates';
 
@@ -30,8 +29,6 @@ const FADER_PARAMS = PARAMS.filter(p => !['pitch', 'volume', 'detune'].includes(
 interface SeqViewProps {
     playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
     playSynthNote: (detune: number, time?: number) => void;
-    startRecording: () => void;
-    stopRecording: () => void;
 }
 
 const ALL_RATE_VALUES = [32, 27, 24, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4, 3];
@@ -216,7 +213,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
         samples,
         audioContext,
         playbackTrackStates,
-        isPlaying,
         activeKey,
         activeScale,
         seqMode,
@@ -254,14 +250,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
     };
 
     const handleSamplePadClick = (id: number) => {
-        // In REC mode, pads only select the active sample for the keyboard.
-        // Recording is triggered by the KeyboardInput component.
-        if (seqMode === 'REC') {
-            dispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: id });
-            return;
-        }
-
-        // Default behavior for other modes
         dispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: id });
         
         const isSynthBank = Math.floor(id / PADS_PER_BANK) === 3;
@@ -445,12 +433,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
             {seqMode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} updatePlaybackScale={updatePlaybackScale} playbackState={playbackState} />}
             {seqMode === 'PARAM' && (
                  <div className="flex-shrink-0 bg-white shadow-md p-1 rounded-lg space-y-1">
-                    <KeyboardInput
-                        playSample={playSample}
-                        playSynthNote={playSynthNote}
-                        mode="PARAM"
-                        onNoteSelect={(detuneValue) => handleParamChange('detune', detuneValue)}
-                    />
+                    {/* The keyboard for parameter lock mode is now part of the GlobalKeyboard */}
                     {!isSynthTrack && (
                          <div className="grid grid-cols-3 gap-x-2 gap-y-1">
                             {FADER_PARAMS.map(p => {
@@ -478,7 +461,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                                         defaultValue={p.value === 'velocity' ? 1 : activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>]}
                                         displayValue={displayValue}
                                         displayPrecision={p.value.includes('Freq') ? 0 : 2}
-                                        size="thin"
                                     />
                                 );
                             })}
@@ -499,13 +481,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                     )}
                 </div>
             )}
-            {seqMode === 'REC' && (
-                <KeyboardInput 
-                    playSample={playSample}
-                    playSynthNote={playSynthNote}
-                    mode="REC"
-                />
-            )}
+            {/* The REC mode keyboard is replaced by the global one */}
 
 
             {/* Step Sequencer Grid / Param Editor */}

@@ -1,5 +1,3 @@
-
-
 import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { AppContext } from './context/AppContext';
 import { Action, ActionType, PlaybackParams } from './types';
@@ -12,6 +10,7 @@ import GrooveView from './components/views/GrooveView';
 import MixerView from './components/views/MixerView';
 import ProjectView from './components/views/ProjectView';
 import SynthView from './components/views/SynthView';
+import GlobalKeyboard from './components/GlobalKeyboard';
 
 import { useAudioEngine } from './hooks/useAudioEngine';
 import { useSequencer } from './hooks/useSequencer';
@@ -24,7 +23,6 @@ const App: React.FC = () => {
   const { state, dispatch } = useContext(AppContext);
   const [activeView, setActiveView] = useState<View>('SAMPLE');
   
-  // Use a ref to hold the latest state to avoid stale closures in callbacks.
   const stateRef = useRef(state);
   useEffect(() => {
     stateRef.current = state;
@@ -36,7 +34,6 @@ const App: React.FC = () => {
   }, [activeView]);
 
 
-  // Initialize Audio Context on first user interaction
   useEffect(() => {
     const initAudio = () => {
       if (!state.isInitialized) {
@@ -45,7 +42,6 @@ const App: React.FC = () => {
           dispatch({ type: ActionType.INITIALIZE_AUDIO, payload: audioContext });
         });
       }
-      // Remove the listener after it's been used once.
       window.removeEventListener('click', initAudio);
       window.removeEventListener('keydown', initAudio);
     };
@@ -61,7 +57,6 @@ const App: React.FC = () => {
 
   const { 
     playSample, 
-    // FIX: Destructure playSynthNote from useAudioEngine.
     playSynthNote,
     loadSampleFromBlob, 
     startRecording, 
@@ -69,15 +64,10 @@ const App: React.FC = () => {
     startMasterRecording,
     stopMasterRecording,
   } = useAudioEngine();
-  // FIX: Pass playSynthNote to useSequencer.
   useSequencer(playSample, playSynthNote);
 
-  // --- PC Keyboard Controls ---
   const handlePCKeyboardInput = useCallback((event: KeyboardEvent) => {
-      // Prevent rapid-fire triggering when a key is held down.
-      if (event.repeat) {
-          return;
-      }
+      if (event.repeat) return;
   
       const { state: appState, dispatch: appDispatch } = { state: stateRef.current, dispatch };
       const currentActiveView = activeViewRef.current;
@@ -85,36 +75,23 @@ const App: React.FC = () => {
       const { 
           activeSampleBank, activeKey, activeScale, keyboardOctave, seqMode, 
           isPlaying, currentSteps, activePatternIds, activeSampleId,
-          isRecording, isArmed, samples
+          isRecording, isArmed, samples, keyboardSource
       } = appState;
   
-      // Prevent handling if a text-based input field is focused, but allow faders.
       const targetElement = event.target as HTMLElement;
       if (targetElement.tagName === 'INPUT') {
         const inputEl = targetElement as HTMLInputElement;
-        // Block only for text-like inputs, not for range sliders (faders).
-        if (inputEl.type === 'text' || inputEl.type === 'number') {
-            return;
-        }
+        if (inputEl.type === 'text' || inputEl.type === 'number') return;
       }
-      if (targetElement.tagName === 'TEXTAREA' || targetElement.tagName === 'SELECT') {
-          return;
-      }
+      if (targetElement.tagName === 'TEXTAREA' || targetElement.tagName === 'SELECT') return;
 
-
-      // Use event.key directly, toLowerCase() can cause issues with keys like '/'
       const key = event.key;
   
-      // --- View-specific shortcuts (Sampling) ---
       if (currentActiveView === 'SAMPLE') {
           switch (key.toLowerCase()) {
               case 'q':
-                  if (isRecording || isArmed) {
-                      stopRecording();
-                  } else {
-                      startRecording();
-                  }
-                  return; // Consume event
+                  if (isRecording || isArmed) stopRecording(); else startRecording();
+                  return;
               case 'w':
                   appDispatch({ type: ActionType.COPY_SAMPLE });
                   return;
@@ -124,16 +101,13 @@ const App: React.FC = () => {
           }
       }
 
-      // --- Global Controls ---
       switch (key.toLowerCase()) {
-          // Octave controls
           case 'a':
               appDispatch({ type: ActionType.SET_KEYBOARD_OCTAVE, payload: Math.max(0, keyboardOctave - 1) });
               return;
           case 'f':
               appDispatch({ type: ActionType.SET_KEYBOARD_OCTAVE, payload: Math.min(8, keyboardOctave + 1) });
               return;
-          // Key controls
           case 'k':
               appDispatch({ type: ActionType.SET_KEY, payload: (activeKey - 1 + 12) % 12 });
               return;
@@ -142,7 +116,6 @@ const App: React.FC = () => {
               return;
       }
       
-      // Scale controls (don't convert to lower case)
       switch (key) {
         case '/':
             const currentIndexDown = SCALES.findIndex(s => s.name === activeScale);
@@ -156,27 +129,29 @@ const App: React.FC = () => {
             return;
       }
   
-      // --- Bank Selection ---
       const bankMap: { [key: string]: number } = { '9': 0, '0': 1, '-': 2, '^': 3 };
       if (bankMap[key] !== undefined) {
           appDispatch({ type: ActionType.SET_ACTIVE_SAMPLE_BANK, payload: bankMap[key] });
           return;
       }
   
-      // --- Pad Triggering / Selection ---
       const padNumber = parseInt(key, 10);
-      if (padNumber >= 1 && padNumber <= PADS_PER_BANK) {
+      if (!isNaN(padNumber) && padNumber >= 1 && padNumber <= PADS_PER_BANK) {
           const sampleIdToTrigger = activeSampleBank * PADS_PER_BANK + (padNumber - 1);
-          
           appDispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: sampleIdToTrigger });
 
-          if (samples[sampleIdToTrigger]?.buffer) {
-               playSample(sampleIdToTrigger, 0);
+          if (activeSampleBank === 3) {
+            appDispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: 'SYNTH' });
+            playSynthNote(1200, 0); 
+          } else {
+            appDispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: 'SAMPLE' });
+            if (samples[sampleIdToTrigger]?.buffer) {
+                 playSample(sampleIdToTrigger, 0);
+            }
           }
           return;
       }
   
-      // --- Note Playing (Physical Keyboard Model) ---
       const keyMap: { [key: string]: number } = {
         'z': 0, 's': 1, 'x': 2, 'd': 3, 'c': 4, 'v': 5, 'g': 6,
         'b': 7, 'h': 8, 'n': 9, 'j': 10, 'm': 11, ',': 12,
@@ -212,8 +187,7 @@ const App: React.FC = () => {
         if (noteInCents !== undefined) {
             const detuneWithKeyAndOctave = noteInCents + (activeKey * 100) + ((keyboardOctave - 4) * 1200);
             
-            // Play synth if Bank D is active, otherwise play sample
-            if(activeSampleBank === 3) {
+            if(keyboardSource === 'SYNTH') {
               playSynthNote(detuneWithKeyAndOctave, 0);
             } else {
               const playbackParams: Partial<PlaybackParams> = { detune: detuneWithKeyAndOctave };
@@ -221,18 +195,25 @@ const App: React.FC = () => {
             }
     
             if (seqMode === 'REC' && isPlaying) {
-                const currentStep = currentSteps[activeSampleBank];
-                const activePatternId = activePatternIds[activeSampleBank];
-                if (currentStep >= 0) {
-                    appDispatch({
-                        type: ActionType.RECORD_STEP,
-                        payload: {
-                            patternId: activePatternId,
-                            sampleId: activeSampleId, // still uses sampleId for lane
-                            step: currentStep,
-                            detune: detuneWithKeyAndOctave,
-                        }
-                    });
+                const isSynth = keyboardSource === 'SYNTH';
+                if (isSynth && activeSampleBank === 3) {
+                    const currentStep = currentSteps[3];
+                    const activePatternId = activePatternIds[3];
+                    if (currentStep >= 0) {
+                        appDispatch({
+                            type: ActionType.RECORD_STEP,
+                            payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: detuneWithKeyAndOctave }
+                        });
+                    }
+                } else if (!isSynth && activeSampleBank !== 3) {
+                     const currentStep = currentSteps[activeSampleBank];
+                     const activePatternId = activePatternIds[activeSampleBank];
+                     if (currentStep >= 0) {
+                        appDispatch({
+                            type: ActionType.RECORD_STEP,
+                            payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: detuneWithKeyAndOctave }
+                        });
+                    }
                 }
             }
         }
@@ -250,7 +231,6 @@ const App: React.FC = () => {
     switch (activeView) {
       case 'SAMPLE':
         return <SampleView 
-            // Pass state as props
             activeSampleId={state.activeSampleId}
             samples={state.samples}
             activeSampleBank={state.activeSampleBank}
@@ -259,7 +239,6 @@ const App: React.FC = () => {
             isArmed={state.isArmed}
             recordingThreshold={state.recordingThreshold}
             sampleClipboard={state.sampleClipboard}
-            // Pass callbacks
             playSample={playSample} 
             startRecording={startRecording} 
             stopRecording={stopRecording} 
@@ -267,7 +246,7 @@ const App: React.FC = () => {
             dispatch={dispatch}
         />;
       case 'SEQ':
-        return <SeqView playSample={playSample} playSynthNote={playSynthNote} startRecording={startRecording} stopRecording={stopRecording} />;
+        return <SeqView playSample={playSample} playSynthNote={playSynthNote} />;
       case 'GROOVE':
         return <GrooveView />;
       case 'MIXER':
@@ -297,25 +276,7 @@ const App: React.FC = () => {
   
   return (
     <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto relative">
-      {/* Header / Transport */}
-      <header className="flex-shrink-0 p-1 bg-emerald-100/50">
-        <Transport 
-          startMasterRecording={startMasterRecording} 
-          stopMasterRecording={stopMasterRecording}
-        />
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-grow min-h-0">
-        {state.isInitialized ? renderView() : (
-           <div className="flex items-center justify-center h-full">
-            <p className="text-slate-500 text-lg">Click anywhere to start the audio engine...</p>
-          </div>
-        )}
-      </main>
-
-      {/* Footer / View Tabs */}
-      <footer className="flex-shrink-0 p-1 bg-emerald-100/50">
+      <header className="flex-shrink-0 p-0.5 bg-emerald-100/50">
         <div className="grid grid-cols-6 gap-1">
           <TabButton label="SAMPLE" isActive={activeView === 'SAMPLE'} onClick={() => setActiveView('SAMPLE')} />
           <TabButton label="SEQ" isActive={activeView === 'SEQ'} onClick={() => setActiveView('SEQ')} />
@@ -324,6 +285,25 @@ const App: React.FC = () => {
           <TabButton label="MIXER" isActive={activeView === 'MIXER'} onClick={() => setActiveView('MIXER')} />
           <TabButton label="PROJECT" isActive={activeView === 'PROJECT'} onClick={() => setActiveView('PROJECT')} />
         </div>
+      </header>
+      
+      <section className="flex-shrink-0 p-1 bg-emerald-100/50">
+        <Transport 
+          startMasterRecording={startMasterRecording} 
+          stopMasterRecording={stopMasterRecording}
+        />
+      </section>
+
+      <main className="flex-grow min-h-0 overflow-y-auto">
+        {state.isInitialized ? renderView() : (
+           <div className="flex items-center justify-center h-full">
+            <p className="text-slate-500 text-lg">Click anywhere to start the audio engine...</p>
+          </div>
+        )}
+      </main>
+
+      <footer className="flex-shrink-0">
+        <GlobalKeyboard playSample={playSample} playSynthNote={playSynthNote} />
       </footer>
     </div>
   );

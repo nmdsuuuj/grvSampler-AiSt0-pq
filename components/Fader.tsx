@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 
 interface FaderProps {
@@ -14,14 +12,13 @@ interface FaderProps {
   displayPrecision?: number;
   isVertical?: boolean;
   hideInfo?: boolean;
-  size?: 'normal' | 'thin';
   hideValue?: boolean;
 }
 
 const Fader: React.FC<FaderProps> = ({ 
   label, value, onChange, min, max, step, defaultValue, 
   displayValue, displayPrecision = 2, isVertical = false, 
-  hideInfo = false, size = 'normal', hideValue = false
+  hideInfo = false, hideValue = false
 }) => {
   const [internalValue, setInternalValue] = useState(value);
   const frameId = useRef<number | null>(null);
@@ -30,7 +27,8 @@ const Fader: React.FC<FaderProps> = ({
   
   // Sync internal state if the external value prop changes (e.g., from loading a project)
   useEffect(() => {
-    if (Math.abs(value - internalValue) > 1e-6) {
+    // FIX: Also check if the incoming value is finite before setting.
+    if (isFinite(value) && Math.abs(value - internalValue) > 1e-6) {
       setInternalValue(value);
     }
   }, [value, internalValue]);
@@ -71,6 +69,13 @@ const Fader: React.FC<FaderProps> = ({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = parseFloat(e.target.value);
+    
+    // FIX: Add a guard to prevent non-finite numbers (NaN, Infinity) from propagating.
+    // This is the root cause of the "non-finite value" error in the audio engine.
+    if (!isFinite(newValue)) {
+        return;
+    }
+
     setInternalValue(newValue); // Update visual state immediately for smoothness
 
     if (frameId.current) {
@@ -86,12 +91,12 @@ const Fader: React.FC<FaderProps> = ({
 
   const containerClasses = isVertical ? 'h-full w-auto' : 'w-full h-auto py-1';
   const inputContainerClasses = isVertical 
-    ? 'relative h-full w-10' 
-    : `relative h-${size === 'normal' ? '10' : '5'} w-full`;
+    ? 'relative h-full w-5' 
+    : `relative h-5 w-full`;
   
   const labelContainerClasses = `absolute inset-0 flex items-center pointer-events-none text-white font-bold text-xs drop-shadow-sm select-none`;
-  const horizontalLabelClasses = `justify-between px-${size === 'normal' ? '4' : '2'}`; // Adjust padding
-  const verticalLabelClasses = 'flex-col justify-between items-center py-3'; // Increased padding
+  const horizontalLabelClasses = `justify-between px-2`; // Adjust padding
+  const verticalLabelClasses = 'flex-col justify-between items-center py-2'; // Adjust padding
 
   return (
     <div className={containerClasses}>
@@ -105,12 +110,13 @@ const Fader: React.FC<FaderProps> = ({
             onChange={handleChange}
             onDoubleClick={handleDoubleClick} // For desktop
             onTouchStart={handleTouchStart} // For mobile
-            className={`${isVertical ? 'vertical-fader' : 'horizontal-fader'} ${size === 'thin' ? 'thin-horizontal-fader' : ''}`}
+            className={`${isVertical ? 'vertical-fader' : 'horizontal-fader'}`}
           />
           {!hideInfo && (
             <div className={`${labelContainerClasses} ${isVertical ? verticalLabelClasses : horizontalLabelClasses}`}>
                 {label && <span>{label}</span>}
-                {!hideValue && <span>{valueToDisplay.toFixed(displayPrecision)}</span>}
+                {/* FIX: Ensure valueToDisplay is a valid number before calling toFixed to prevent crashes if it's NaN. */}
+                {!hideValue && <span>{isFinite(valueToDisplay) ? valueToDisplay.toFixed(displayPrecision) : '...'}</span>}
             </div>
           )}
       </div>

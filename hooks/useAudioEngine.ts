@@ -14,6 +14,30 @@ const usePrevious = <T,>(value: T): T | undefined => {
     return ref.current;
 };
 
+// Type for the persistent synth graph nodes
+type SynthGraphNodes = {
+    osc1Gain: GainNode;
+    osc2Gain: GainNode;
+    shaper1: WaveShaperNode;
+    shaper1InputGain: GainNode;
+    shaper2: WaveShaperNode;
+    shaper2InputGain: GainNode;
+    mixer: GainNode;
+    fm1Gain: GainNode; // Modulates osc1 freq
+    fm2Gain: GainNode; // Modulates osc2 freq
+    filterNode: BiquadFilterNode;
+    vca: GainNode;
+    lfo1: OscillatorNode;
+    lfo2: OscillatorNode;
+    modGains: { [key: string]: GainNode }; // For LFO -> destination modulation
+};
+
+// Type for the currently playing note's sources
+type ActiveNoteSources = {
+    oscNode1: OscillatorNode;
+    oscNode2: OscillatorNode;
+};
+
 export const useAudioEngine = () => {
     const { state, dispatch } = useContext(AppContext);
     const { audioContext, samples, bankVolumes, bankPans, bankMutes, bankSolos, isRecording, isArmed, recordingThreshold, activeSampleId, masterVolume, masterCompressorOn, masterCompressorParams, synth, synthModMatrix } = state;
@@ -27,8 +51,10 @@ export const useAudioEngine = () => {
     const lpFilterNodesRef = useRef<BiquadFilterNode[]>([]);
     const hpFilterNodesRef = useRef<BiquadFilterNode[]>([]);
     const activeSourcesRef = useRef<Map<number, Set<AudioBufferSourceNode>>>(new Map());
-    const activeSynthNodesRef = useRef<any[]>([]);
-
+    
+    // --- NEW SYNTH REFS ---
+    const synthGraphRef = useRef<SynthGraphNodes | null>(null);
+    const activeNoteSourcesRef = useRef<ActiveNoteSources | null>(null);
 
     // Create a ref to hold the latest state for use in callbacks without causing re-renders.
     const stateRef = useRef(state);
@@ -125,6 +151,68 @@ export const useAudioEngine = () => {
             lpFilterNodesRef.current = lpFilters;
             hpFilterNodesRef.current = hpFilters;
             sampleGainsRef.current = sampleGains;
+        }
+
+        // --- NEW: Initialize persistent synth graph ---
+        if (audioContext && !synthGraphRef.current) {
+            const osc1Gain = audioContext.createGain();
+            const osc2Gain = audioContext.createGain();
+            const shaper1 = audioContext.createWaveShaper();
+            const shaper1InputGain = audioContext.createGain();
+            const shaper2 = audioContext.createWaveShaper();
+            const shaper2InputGain = audioContext.createGain();
+            const mixer = audioContext.createGain();
+            const fm1Gain = audioContext.createGain();
+            const fm2Gain = audioContext.createGain();
+            const filterNode = audioContext.createBiquadFilter();
+            const vca = audioContext.createGain();
+            const lfo1 = audioContext.createOscillator();
+            const lfo2 = audioContext.createOscillator();
+
+            // --- Build Audio Graph ---
+            shaper1InputGain.connect(shaper1);
+            shaper1.connect(osc1Gain);
+            osc1Gain.connect(mixer);
+            shaper2InputGain.connect(shaper2);
+            shaper2.connect(osc2Gain);
+            osc2Gain.connect(mixer);
+            mixer.connect(filterNode);
+            filterNode.connect(vca);
+            const bankIndex = 3;
+            if (bankGainsRef.current[bankIndex]) {
+                vca.connect(bankGainsRef.current[bankIndex]);
+            }
+
+            // --- Modulation Setup ---
+            const modGains: { [key: string]: GainNode } = {};
+            const modSources = ['lfo1', 'lfo2'];
+            const modDestinations = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'osc1Wave', 'osc2Wave', 'filterCutoff', 'filterQ'];
+
+            modSources.forEach(source => {
+                const modSourceNode = source === 'lfo1' ? lfo1 : lfo2;
+                modDestinations.forEach(dest => {
+                    const gainNode = audioContext.createGain();
+                    gainNode.gain.value = 0; // Initialize all mod depths to 0
+                    modGains[`${source}_${dest}`] = gainNode;
+                    modSourceNode.connect(gainNode);
+
+                    // Connect modulation gains to their destinations (except for pitch, which is dynamic)
+                    if (dest === 'osc1FM') gainNode.connect(fm2Gain.gain);
+                    if (dest === 'osc2FM') gainNode.connect(fm1Gain.gain);
+                    if (dest === 'osc1Wave') gainNode.connect(shaper1InputGain.gain);
+                    if (dest === 'osc2Wave') gainNode.connect(shaper2InputGain.gain);
+                    if (dest === 'filterCutoff') gainNode.connect(filterNode.frequency);
+                    if (dest === 'filterQ') gainNode.connect(filterNode.Q);
+                });
+            });
+            
+            lfo1.start();
+            lfo2.start();
+
+            synthGraphRef.current = {
+                osc1Gain, osc2Gain, shaper1, shaper1InputGain, shaper2, shaper2InputGain,
+                mixer, fm1Gain, fm2Gain, filterNode, vca, lfo1, lfo2, modGains
+            };
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [audioContext]);
@@ -298,26 +386,36 @@ export const useAudioEngine = () => {
 
     }, []);
 
-    const playSynthNote = useCallback((detune: number, scheduleTime: number) => {
+    const playSynthNote = useCallback((relativeDetune: number, scheduleTime: number) => {
         const { audioContext: ctx, synth: currentSynth, synthModMatrix: currentModMatrix } = stateRef.current;
-        if (!ctx) return;
+        const synthGraph = synthGraphRef.current;
+        if (!ctx || !synthGraph) return;
     
-        // --- Monophonic: Stop previous note ---
-        activeSynthNodesRef.current.forEach(nodes => {
-            const stopNow = ctx.currentTime;
-            nodes.vca.gain.cancelScheduledValues(stopNow);
-            nodes.vca.gain.setValueAtTime(nodes.vca.gain.value, stopNow);
-            nodes.vca.gain.linearRampToValueAtTime(0, stopNow + 0.01);
-            const finalStopTime = stopNow + 0.02;
-            if (nodes.oscNode1) nodes.oscNode1.stop(finalStopTime);
-            if (nodes.oscNode2) nodes.oscNode2.stop(finalStopTime);
-        });
-        activeSynthNodesRef.current = [];
-
         const now = ctx.currentTime;
         const effectiveTime = scheduleTime === 0 ? now : scheduleTime;
         const { osc1, osc2, oscMix, filter, filterEnv, ampEnv, globalGateTime } = currentSynth;
-    
+        
+        // --- Monophonic Voice Stealing: Gracefully stop the previous note ---
+        if (activeNoteSourcesRef.current) {
+            const oldSources = activeNoteSourcesRef.current;
+            const releaseTime = now + RAMP_TIME;
+
+            // Ramp down VCA gain quickly to prevent clicks
+            synthGraph.vca.gain.cancelScheduledValues(now);
+            synthGraph.vca.gain.setValueAtTime(synthGraph.vca.gain.value, now); // Pin current value
+            synthGraph.vca.gain.linearRampToValueAtTime(0, releaseTime);
+            
+            // Stop old oscillators
+            oldSources.oscNode1.stop(releaseTime);
+            oldSources.oscNode2.stop(releaseTime);
+            
+            // Disconnect dynamic LFO pitch modulation
+            synthGraph.modGains['lfo1_osc1Pitch'].disconnect();
+            synthGraph.modGains['lfo1_osc2Pitch'].disconnect();
+            synthGraph.modGains['lfo2_osc1Pitch'].disconnect();
+            synthGraph.modGains['lfo2_osc2Pitch'].disconnect();
+        }
+
         // --- Helper functions ---
         const createPeriodicWave = (type: CustomOscillatorType): PeriodicWave => {
             const n = 4096;
@@ -364,49 +462,21 @@ export const useAudioEngine = () => {
             return curve;
         };
 
-        // --- Create Nodes ---
+        // --- Create NEW Oscillator Sources for the new note ---
         const oscNode1 = ctx.createOscillator();
         const oscNode2 = ctx.createOscillator();
-        const osc1Gain = ctx.createGain();
-        const osc2Gain = ctx.createGain();
-        const shaper1 = ctx.createWaveShaper();
-        const shaper1InputGain = ctx.createGain();
-        const shaper2 = ctx.createWaveShaper();
-        const shaper2InputGain = ctx.createGain();
-        const mixer = ctx.createGain();
-        const fm1Gain = ctx.createGain();
-        const fm2Gain = ctx.createGain();
-        const filterNode = ctx.createBiquadFilter();
-        const vca = ctx.createGain();
-        const lfo1 = ctx.createOscillator();
-        const lfo2 = ctx.createOscillator();
 
-        // --- Build Audio Graph ---
-        oscNode1.connect(shaper1InputGain);
-        shaper1InputGain.connect(shaper1);
-        shaper1.connect(osc1Gain);
-        osc1Gain.connect(mixer);
-
-        oscNode2.connect(shaper2InputGain);
-        shaper2InputGain.connect(shaper2);
-        shaper2.connect(osc2Gain);
-        osc2Gain.connect(mixer);
-
-        mixer.connect(filterNode);
-        filterNode.connect(vca);
-        const bankIndex = 3;
-        if (bankGainsRef.current[bankIndex]) {
-            vca.connect(bankGainsRef.current[bankIndex]);
-        }
-
-        // FM Routing
-        oscNode2.connect(fm1Gain);
-        fm1Gain.connect(oscNode1.frequency);
-        oscNode1.connect(fm2Gain);
-        fm2Gain.connect(oscNode2.frequency);
-
-        // --- Set Initial Parameters ---
-        const baseFreq = 440 * Math.pow(2, (detune - 6900) / 1200);
+        // Connect new sources to the persistent graph
+        oscNode1.connect(synthGraph.shaper1InputGain);
+        oscNode2.connect(synthGraph.shaper2InputGain);
+        oscNode2.connect(synthGraph.fm1Gain);
+        synthGraph.fm1Gain.connect(oscNode1.frequency);
+        oscNode1.connect(synthGraph.fm2Gain);
+        synthGraph.fm2Gain.connect(oscNode2.frequency);
+        
+        // --- Set ALL Parameters on the Persistent Graph and New Sources ---
+        const absoluteDetune = relativeDetune + 6000;
+        const baseFreq = 440 * Math.pow(2, (absoluteDetune - 6900) / 1200);
         
         if (['sine', 'square', 'sawtooth', 'triangle'].includes(osc1.type)) { oscNode1.type = osc1.type as OscillatorType; } 
         else { oscNode1.setPeriodicWave(createPeriodicWave(osc1.type as CustomOscillatorType)); }
@@ -418,72 +488,71 @@ export const useAudioEngine = () => {
         oscNode2.frequency.setValueAtTime(baseFreq * Math.pow(2, osc2.octave), effectiveTime);
         oscNode2.detune.setValueAtTime(osc2.detune, effectiveTime);
         
-        fm1Gain.gain.setValueAtTime(osc2.fmDepth, effectiveTime); // Osc2 -> Osc1 FM
-        fm2Gain.gain.setValueAtTime(osc1.fmDepth, effectiveTime); // Osc1 -> Osc2 FM
+        synthGraph.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
+        synthGraph.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
+        synthGraph.fm1Gain.gain.setValueAtTime(osc2.fmDepth, effectiveTime);
+        synthGraph.fm2Gain.gain.setValueAtTime(osc1.fmDepth, effectiveTime);
         
-        shaper1.curve = makeDistortionCurve(osc1.waveshapeType, osc1.waveshapeAmount);
-        shaper1.oversample = '4x';
-        shaper2.curve = makeDistortionCurve(osc2.waveshapeType, osc2.waveshapeAmount);
-        shaper2.oversample = '4x';
+        synthGraph.shaper1.curve = makeDistortionCurve(osc1.waveshapeType, osc1.waveshapeAmount);
+        synthGraph.shaper1.oversample = '4x';
+        synthGraph.shaper2.curve = makeDistortionCurve(osc2.waveshapeType, osc2.waveshapeAmount);
+        synthGraph.shaper2.oversample = '4x';
     
-        osc1Gain.gain.value = 1 - oscMix;
-        osc2Gain.gain.value = oscMix;
-    
-        filterNode.type = filter.type;
-        filterNode.frequency.setValueAtTime(filter.cutoff, effectiveTime);
-        filterNode.Q.setValueAtTime(filter.resonance, effectiveTime);
+        synthGraph.filterNode.type = filter.type;
+        synthGraph.filterNode.frequency.setValueAtTime(filter.cutoff, effectiveTime);
+        synthGraph.filterNode.Q.setValueAtTime(filter.resonance, effectiveTime);
 
-        // FIX: Correctly set LFO parameters from the `currentSynth` state object. The original code was incorrectly trying to read properties from the OscillatorNode itself.
-        lfo1.type = currentSynth.lfo1.type;
-        lfo1.frequency.value = currentSynth.lfo1.rate;
-        lfo2.type = currentSynth.lfo2.type;
-        lfo2.frequency.value = currentSynth.lfo2.rate;
-        lfo1.start(effectiveTime);
-        lfo2.start(effectiveTime);
+        synthGraph.lfo1.type = currentSynth.lfo1.type as OscillatorType;
+        synthGraph.lfo1.frequency.setValueAtTime(currentSynth.lfo1.rate, effectiveTime);
+        synthGraph.lfo2.type = currentSynth.lfo2.type as OscillatorType;
+        synthGraph.lfo2.frequency.setValueAtTime(currentSynth.lfo2.rate, effectiveTime);
 
-        // --- Modulation ---
+        // --- Modulation Matrix ---
+        // FIX: Add type assertion to fix "Property 'gain' does not exist on type 'unknown'" error.
+        // This can happen if the TypeScript version or configuration doesn't correctly infer the type from Object.values.
+        Object.values(synthGraph.modGains).forEach(g => (g as GainNode).gain.setValueAtTime(0, effectiveTime));
+        
         Object.keys(currentModMatrix).forEach(source => {
             const destinations = currentModMatrix[source];
             if (!destinations) return;
             Object.keys(destinations).forEach(dest => {
-                if (!destinations[dest]) return;
+                if (!destinations[dest] || source === 'filterEnv') return;
 
-                const modSourceNode = source === 'lfo1' ? lfo1 : source === 'lfo2' ? lfo2 : null;
-                const modAmount = 1; // This could be a parameter later
-
-                if (modSourceNode) {
-                    const gain = ctx.createGain();
-                    switch(dest) {
-                        case 'osc1Pitch': gain.gain.value = 100 * modAmount; gain.connect(oscNode1.detune); break;
-                        case 'osc2Pitch': gain.gain.value = 100 * modAmount; gain.connect(oscNode2.detune); break;
-                        case 'osc1FM': gain.gain.value = 2000 * modAmount; gain.connect(fm2Gain.gain); break;
-                        case 'osc2FM': gain.gain.value = 2000 * modAmount; gain.connect(fm1Gain.gain); break;
-                        case 'osc1Wave': gain.gain.value = 1 * modAmount; gain.connect(shaper1InputGain.gain); break;
-                        case 'osc2Wave': gain.gain.value = 1 * modAmount; gain.connect(shaper2InputGain.gain); break;
-                        case 'filterCutoff': gain.gain.value = 5000 * modAmount; gain.connect(filterNode.frequency); break;
-                        case 'filterQ': gain.gain.value = 15 * modAmount; gain.connect(filterNode.Q); break;
-                    }
-                    modSourceNode.connect(gain);
+                const gainNodeKey = `${source}_${dest}`;
+                const gainNode = synthGraph.modGains[gainNodeKey];
+                if (!gainNode) return;
+                
+                let modAmount = 1.0;
+                switch(dest) {
+                    case 'osc1Pitch': case 'osc2Pitch': modAmount = 100; break;
+                    case 'osc1FM': case 'osc2FM': modAmount = 2000; break;
+                    case 'osc1Wave': case 'osc2Wave': modAmount = 1; break;
+                    case 'filterCutoff': modAmount = 5000; break;
+                    case 'filterQ': modAmount = 15; break;
                 }
+                gainNode.gain.setValueAtTime(modAmount, effectiveTime);
+
+                if (dest === 'osc1Pitch') gainNode.connect(oscNode1.detune);
+                if (dest === 'osc2Pitch') gainNode.connect(oscNode2.detune);
             });
         });
     
         // --- Envelopes & Scheduling ---
         const gateEndTime = effectiveTime + globalGateTime;
-        const finalStopTime = gateEndTime + Math.max(0.01, filterEnv.release) + 0.1;
+        const finalStopTime = gateEndTime + ampEnv.release;
 
-        // Amp Envelope (ADS)
-        const amp = vca.gain;
+        // Amp Envelope (ADSR)
+        const amp = synthGraph.vca.gain;
         amp.cancelScheduledValues(effectiveTime);
         amp.setValueAtTime(0, effectiveTime);
         amp.linearRampToValueAtTime(1, effectiveTime + ampEnv.attack);
         amp.linearRampToValueAtTime(ampEnv.sustain, effectiveTime + ampEnv.attack + ampEnv.decay);
         amp.setValueAtTime(ampEnv.sustain, gateEndTime);
-        amp.linearRampToValueAtTime(0, gateEndTime + 0.01); // Fast release
+        amp.linearRampToValueAtTime(0, finalStopTime);
     
         // Filter Envelope (ADSR)
-        const filterFreq = filterNode.frequency;
-        const currentCutoff = filterNode.frequency.value;
+        const filterFreq = synthGraph.filterNode.frequency;
+        const currentCutoff = filter.cutoff;
         filterFreq.cancelScheduledValues(effectiveTime);
         filterFreq.setValueAtTime(currentCutoff, effectiveTime);
         const peakFreq = currentCutoff + filter.envAmount;
@@ -495,30 +564,45 @@ export const useAudioEngine = () => {
         // Modulate with Filter Env
         Object.keys(currentModMatrix['filterEnv'] || {}).forEach(dest => {
             if (!currentModMatrix['filterEnv'][dest]) return;
-            const targetParam = 
-                dest === 'osc1Pitch' ? oscNode1.detune :
-                dest === 'osc2Pitch' ? oscNode2.detune : null; 
+            
+            // FIX: The original logic for filter envelope modulation was incomplete.
+            // It only handled pitch destinations, ignoring others defined in presets.
+            // This has been expanded to correctly identify all possible target AudioParams
+            // and apply the envelope, preventing silent failures and potential errors.
+            const targetParamData = ((): { param: AudioParam | null, baseValue: number, modAmount: number } => {
+                switch (dest) {
+                    case 'osc1Pitch': return { param: oscNode1.detune, baseValue: osc1.detune, modAmount: 2400 };
+                    case 'osc2Pitch': return { param: oscNode2.detune, baseValue: osc2.detune, modAmount: 2400 };
+                    case 'osc1FM': return { param: synthGraph.fm2Gain.gain, baseValue: osc1.fmDepth, modAmount: 2500 };
+                    case 'osc2FM': return { param: synthGraph.fm1Gain.gain, baseValue: osc2.fmDepth, modAmount: 2500 };
+                    case 'osc1Wave': return { param: synthGraph.shaper1InputGain.gain, baseValue: 0, modAmount: 1 };
+                    case 'osc2Wave': return { param: synthGraph.shaper2InputGain.gain, baseValue: 0, modAmount: 1 };
+                    // Filter cutoff/Q modulation by filter env is already handled by filter.envAmount
+                    default: return { param: null, baseValue: 0, modAmount: 0 };
+                }
+            })();
+
+            const { param: targetParam, baseValue, modAmount } = targetParamData;
+            
             if (targetParam) {
-                const modAmount = dest.includes('Pitch') ? 2400 : 1;
                 targetParam.cancelScheduledValues(effectiveTime);
-                targetParam.setValueAtTime(targetParam.value, effectiveTime);
-                targetParam.linearRampToValueAtTime(targetParam.value + modAmount, effectiveTime + filterEnv.attack);
-                targetParam.linearRampToValueAtTime(targetParam.value + modAmount * filterEnv.sustain, effectiveTime + filterEnv.attack + filterEnv.decay);
-                targetParam.setValueAtTime(targetParam.value + modAmount * filterEnv.sustain, gateEndTime);
-                targetParam.linearRampToValueAtTime(targetParam.value, gateEndTime + filterEnv.release);
+                // Set the starting base value
+                targetParam.setValueAtTime(baseValue, effectiveTime);
+                // Apply ADSR envelope shape, adding modulation on top of the base value
+                targetParam.linearRampToValueAtTime(baseValue + modAmount, effectiveTime + filterEnv.attack);
+                targetParam.linearRampToValueAtTime(baseValue + (modAmount * filterEnv.sustain), effectiveTime + filterEnv.attack + filterEnv.decay);
+                targetParam.setValueAtTime(baseValue + (modAmount * filterEnv.sustain), gateEndTime);
+                targetParam.linearRampToValueAtTime(baseValue, gateEndTime + filterEnv.release);
             }
         });
-
     
         // --- Start/Stop Oscillators ---
         oscNode1.start(effectiveTime);
         oscNode2.start(effectiveTime);
         oscNode1.stop(finalStopTime);
         oscNode2.stop(finalStopTime);
-        lfo1.stop(finalStopTime);
-        lfo2.stop(finalStopTime);
         
-        activeSynthNodesRef.current.push({ vca, oscNode1, oscNode2 });
+        activeNoteSourcesRef.current = { oscNode1, oscNode2 };
     }, []);
 
     const loadSampleFromBlob = useCallback(async (blob: Blob, sampleId: number, name?: string) => {

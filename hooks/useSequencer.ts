@@ -149,7 +149,8 @@ export const useSequencer = (
                 const isSynthBank = nextTrackIndex === 3;
 
                 if (isSynthBank) {
-                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
+                     // Find the first active step in the bank for this displayStep and play it.
+                    for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
                         const stepInfo = pattern.steps[sampleId]?.[displayStep];
                         if (stepInfo?.active) {
                             let finalDetune = stepInfo.detune ?? 0;
@@ -160,6 +161,7 @@ export const useSequencer = (
                             }
                             // --- End Logic ---
                             playSynthNote(finalDetune, scheduledTime);
+                            break; // Play only the first found note for monophonic synth
                         }
                     }
                 } else {

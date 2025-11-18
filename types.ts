@@ -125,6 +125,7 @@ export interface SynthAmpEnvelope {
     attack: number;
     decay: number;
     sustain: number; // 0-1
+    release: number;
 }
 
 
@@ -209,6 +210,7 @@ export interface AppState {
     synthModMatrix: ModMatrix;
     synthPresets: (SynthPreset | null)[];
     synthModPatches: (ModPatch | null)[];
+    keyboardSource: 'SAMPLE' | 'SYNTH';
 }
 
 export enum ActionType {
@@ -270,8 +272,11 @@ export enum ActionType {
     SET_SYNTH_MOD_MATRIX,
     RANDOMIZE_SYNTH_MOD_MATRIX,
     SAVE_SYNTH_MOD_PATCH,
-    SAVE_SYNTH_PRESET,
+    SAVE_SYNTH_PRESET_AT_INDEX,
+    CLEAR_SYNTH_PRESET_AT_INDEX,
     LOAD_SYNTH_PRESET,
+    // Global Keyboard
+    SET_KEYBOARD_SOURCE,
 }
 
 export type Action =
@@ -333,5 +338,8 @@ export type Action =
     | { type: ActionType.SET_SYNTH_MOD_MATRIX; payload: { source: string; dest: string; value: boolean } }
     | { type: ActionType.RANDOMIZE_SYNTH_MOD_MATRIX }
     | { type: ActionType.SAVE_SYNTH_MOD_PATCH; payload: { name: string, matrix: ModMatrix } }
-    | { type: ActionType.SAVE_SYNTH_PRESET; payload: { name: string, synth: Synth, matrix: ModMatrix } }
-    | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset };
+    | { type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX; payload: { index: number, name: string, synth: Synth, matrix: ModMatrix } }
+    | { type: ActionType.CLEAR_SYNTH_PRESET_AT_INDEX; payload: { index: number } }
+    | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset }
+    // Global Keyboard
+    | { type: ActionType.SET_KEYBOARD_SOURCE; payload: 'SAMPLE' | 'SYNTH' };

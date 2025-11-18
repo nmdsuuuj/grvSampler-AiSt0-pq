@@ -16,11 +16,11 @@
         user-select: none;
         -webkit-tap-highlight-color: transparent;
       }
-      /* Base styles for ALL range inputs */
+      /* Base styles for ALL range inputs - NEW SLIMMER DEFAULT */
       input[type="range"] {
         cursor: pointer;
         outline: none;
-        border-radius: 1.5rem; /* Increased */
+        border-radius: 1rem;
         background: transparent;
       }
 
@@ -29,69 +29,49 @@
         -webkit-appearance: none;
         appearance: none;
         width: 100%;
-        height: 2.5rem; /* track height - Increased again for mobile */
+        height: 1.25rem; /* h-5 */
       }
 
       /* Styles for VERTICAL fader */
       .vertical-fader {
         -webkit-appearance: slider-vertical;
-        width: 2.5rem; /* track width - Increased again for mobile */
+        width: 1.25rem; /* w-5 */
         height: 100%;
       }
 
       /* Webkit track/thumb styles (apply to both) */
       input[type="range"]::-webkit-slider-runnable-track {
-        height: 2.5rem; /* Increased */
-        background: #34d399; /* emerald-400 - Darkened for contrast */
-        border-radius: 1.5rem;
+        height: 1.25rem;
+        background: #34d399; /* emerald-400 */
+        border-radius: 1rem;
       }
       input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        margin-top: 0.25rem; /* center thumb on horizontal track */
-        height: 2rem; /* Increased */
-        width: 2rem;  /* Increased */
+        margin-top: 0.125rem; /* center thumb on horizontal track */
+        height: 1rem; /* h-4 */
+        width: 1rem;  /* w-4 */
         background-color: #ec4899; /* pink-500 */
         border-radius: 50%;
         border: 2px solid #fff;
       }
       .vertical-fader::-webkit-slider-thumb {
-         margin-left: 0.25rem; /* Re-center thumb on vertical track */
+         margin-left: 0.125rem; /* Re-center thumb on vertical track */
          margin-top: 0;
       }
 
       /* Firefox track/thumb styles (apply to both) */
       input[type="range"]::-moz-range-track {
-        height: 2.5rem; /* Increased */
-        background: #34d399; /* emerald-400 - Darkened */
-        border-radius: 1.5rem;
+        height: 1.25rem;
+        background: #34d399; /* emerald-400 */
+        border-radius: 1rem;
       }
       input[type="range"]::-moz-range-thumb {
-        height: 2rem; /* Increased */
-        width: 2rem;  /* Increased */
+        height: 1rem;
+        width: 1rem;
         background-color: #ec4899; /* pink-500 */
         border-radius: 50%;
         border: none;
-      }
-
-      /* Styles for THIN HORIZONTAL fader */
-      .thin-horizontal-fader {
-        height: 1.25rem !important; /* h-5 */
-      }
-      .thin-horizontal-fader::-webkit-slider-runnable-track {
-        height: 1.25rem !important;
-      }
-      .thin-horizontal-fader::-webkit-slider-thumb {
-        height: 1rem !important; /* h-4 */
-        width: 1rem !important; /* w-4 */
-        margin-top: 0.125rem !important; /* (1.25rem - 1rem) / 2 */
-      }
-      .thin-horizontal-fader::-moz-range-track {
-        height: 1.25rem !important;
-      }
-      .thin-horizontal-fader::-moz-range-thumb {
-        height: 1rem !important;
-        width: 1rem !important;
       }
     </style>
   <script type="importmap">

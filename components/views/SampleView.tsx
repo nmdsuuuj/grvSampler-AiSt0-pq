@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Action, ActionType, PlaybackParams, Sample } from '../../types';
 import Fader from '../Fader';
@@ -286,11 +285,11 @@ const SampleView: React.FC<SampleViewProps> = ({
                 {isSamplingMode ? (
                     <div className="space-y-2">
                         <div className="grid grid-cols-5 gap-1 text-center">
-                            <button onClick={handleRecordClick} className={`py-2 text-sm font-bold rounded transition-colors ${armButtonClasses}`}>{buttonLabel}</button>
-                            <button onClick={() => dispatch({ type: ActionType.COPY_SAMPLE })} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-2 rounded text-xs">Copy</button>
-                            <button onClick={() => dispatch({ type: ActionType.PASTE_SAMPLE })} disabled={!sampleClipboard} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-2 rounded text-xs disabled:bg-emerald-100 disabled:text-emerald-400 disabled:cursor-not-allowed">Paste</button>
-                            <button onClick={handleFileImportClick} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs">Imprt</button>
-                            <button onClick={handleExport} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs">Exprt</button>
+                            <button onClick={handleRecordClick} className={`py-1.5 text-sm font-bold rounded transition-colors ${armButtonClasses}`}>{buttonLabel}</button>
+                            <button onClick={() => dispatch({ type: ActionType.COPY_SAMPLE })} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-1.5 rounded text-xs">Copy</button>
+                            <button onClick={() => dispatch({ type: ActionType.PASTE_SAMPLE })} disabled={!sampleClipboard} className="bg-emerald-200 hover:bg-emerald-300 text-slate-800 font-bold py-1.5 rounded text-xs disabled:bg-emerald-100 disabled:text-emerald-400 disabled:cursor-not-allowed">Paste</button>
+                            <button onClick={handleFileImportClick} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-1.5 rounded text-xs">Imprt</button>
+                            <button onClick={handleExport} className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-1.5 rounded text-xs">Exprt</button>
                         </div>
                         <div>
                             <Fader label="Threshold" value={Math.pow(recordingThreshold, 1/4)} displayValue={recordingThreshold} onChange={handleThresholdChange} min={0} max={1} step={0.01} defaultValue={Math.pow(0.02, 1/4)} />
@@ -298,8 +297,8 @@ const SampleView: React.FC<SampleViewProps> = ({
                          <div className="border-t-2 border-emerald-100 mt-2 pt-2 space-y-2">
                             <h3 className="font-bold text-slate-700 text-sm text-center">バンクキット (バンク {String.fromCharCode(65 + activeSampleBank)} のサンプル)</h3>
                             <div className="flex space-x-2">
-                                <input type="text" value={bankKitName} onChange={(e) => setBankKitName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm" placeholder="バンクキット名" />
-                                <button onClick={handleSaveBankKit} className="bg-amber-400 hover:bg-amber-500 text-white font-bold px-4 py-2 rounded text-sm whitespace-nowrap">キット保存</button>
+                                <input type="text" value={bankKitName} onChange={(e) => setBankKitName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-1.5 w-full focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm" placeholder="バンクキット名" />
+                                <button onClick={handleSaveBankKit} className="bg-amber-400 hover:bg-amber-500 text-white font-bold px-4 py-1.5 rounded text-sm whitespace-nowrap">キット保存</button>
                             </div>
                             <ul className="space-y-1 max-h-24 overflow-y-auto pr-1">
                                 {bankKits?.map(bk => (

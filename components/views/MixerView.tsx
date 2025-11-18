@@ -76,13 +76,13 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                         <div className="flex w-full justify-around">
                             <button
                                 onClick={() => handleMuteToggle(i)}
-                                className={`w-10 h-10 rounded-md font-bold text-sm transition-colors ${bankMutes[i] ? 'bg-rose-500 text-white' : 'bg-slate-300 text-slate-600'}`}
+                                className={`w-8 h-8 rounded-md font-bold text-xs transition-colors ${bankMutes[i] ? 'bg-rose-500 text-white' : 'bg-slate-300 text-slate-600'}`}
                             >
                                 M
                             </button>
                             <button
                                 onClick={() => handleSoloToggle(i)}
-                                className={`w-10 h-10 rounded-md font-bold text-sm transition-colors ${bankSolos[i] ? 'bg-yellow-400 text-slate-800' : 'bg-slate-300 text-slate-600'}`}
+                                className={`w-8 h-8 rounded-md font-bold text-xs transition-colors ${bankSolos[i] ? 'bg-yellow-400 text-slate-800' : 'bg-slate-300 text-slate-600'}`}
                             >
                                 S
                             </button>
@@ -109,7 +109,7 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                     <button
                         onClick={handleRecordToggle}
                         disabled={!isInitialized || (isPlaying && !isMasterRecording)}
-                        className={`w-14 h-14 rounded-full font-bold text-sm transition-colors flex items-center justify-center
+                        className={`w-12 h-12 rounded-full font-bold text-xs transition-colors flex items-center justify-center
                             ${isMasterRecording ? 'bg-rose-500 text-white animate-pulse' : isMasterRecArmed ? 'bg-yellow-400 text-slate-800' : 'bg-slate-300 text-slate-600'}
                             ${(!isInitialized || (isPlaying && !isMasterRecording)) && 'cursor-not-allowed bg-slate-200'}`}
                     >

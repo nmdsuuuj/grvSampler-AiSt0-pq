@@ -196,12 +196,12 @@ const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterR
     <div className="flex items-center space-x-2">
       <button
         onClick={handlePlayToggle}
-        className={`w-16 px-4 py-3 font-bold rounded-md transition-colors ${isPlaying ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+        className={`w-16 px-4 py-2 font-bold rounded-md transition-colors ${isPlaying ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
       >
         {isPlaying ? 'STOP' : 'PLAY'}
       </button>
 
-      <div className="flex-grow flex items-center h-12 bg-emerald-100 rounded-lg p-2 shadow-inner">
+      <div className="flex-grow flex items-center h-10 bg-emerald-100 rounded-lg p-2 shadow-inner">
         <div className="flex-grow h-full">
           {renderBpmControl()}
         </div>
@@ -215,7 +215,7 @@ const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterR
             onTouchEnd={handleTapRelease}
             onClick={(e) => e.preventDefault()}
             onContextMenu={(e) => e.preventDefault()}
-            className={`w-20 h-12 rounded-md transition-colors bg-emerald-200 text-slate-700 flex-shrink-0 hover:bg-emerald-300 flex items-center justify-center text-2xl font-bold tracking-tight border-2 ${getTapButtonBorderStyle()}`}
+            className={`w-20 h-10 rounded-md transition-colors bg-emerald-200 text-slate-700 flex-shrink-0 hover:bg-emerald-300 flex items-center justify-center text-2xl font-bold tracking-tight border-2 ${getTapButtonBorderStyle()}`}
         >
             {bpm.toFixed(1)}
         </button>

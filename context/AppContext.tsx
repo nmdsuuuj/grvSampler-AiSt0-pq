@@ -18,13 +18,13 @@ const initialSynthState: Synth = {
     oscMix: 0.5,
     filter: { type: 'lowpass', cutoff: 8000, resonance: 1, envAmount: 3000 },
     filterEnv: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.3 },
-    ampEnv: { attack: 0.005, decay: 0.5, sustain: 1 },
+    ampEnv: { attack: 0.005, decay: 0.5, sustain: 1, release: 0.3 },
     lfo1: { type: 'sine', rate: 5 },
     lfo2: { type: 'sine', rate: 2 },
     globalGateTime: 0.2,
 };
 
-const defaultPresets: (SynthPreset | null)[] = Array(64).fill(null);
+const defaultPresets: (SynthPreset | null)[] = Array(128).fill(null);
 
 // Preset 0: Fat Bass
 defaultPresets[0] = {
@@ -36,7 +36,7 @@ defaultPresets[0] = {
         oscMix: 0.5,
         filter: { type: 'lowpass', cutoff: 800, resonance: 8, envAmount: 2500 },
         filterEnv: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.2 },
-        ampEnv: { attack: 0.01, decay: 0.4, sustain: 0.8 },
+        ampEnv: { attack: 0.01, decay: 0.4, sustain: 0.8, release: 0.2 },
     },
     modMatrix: {},
 };
@@ -49,7 +49,7 @@ defaultPresets[1] = {
         osc2: { ...initialSynthState.osc2, type: 'sine', octave: 1, detune: 0, fmDepth: 1200 },
         filter: { type: 'highpass', cutoff: 500, resonance: 5, envAmount: 1000 },
         filterEnv: { attack: 0.1, decay: 0.5, sustain: 0.8, release: 0.5 },
-        ampEnv: { attack: 0.05, decay: 0.8, sustain: 0.7 },
+        ampEnv: { attack: 0.05, decay: 0.8, sustain: 0.7, release: 0.8 },
     },
     modMatrix: { 'filterEnv': { 'osc2FM': true } },
 };
@@ -62,7 +62,7 @@ defaultPresets[2] = {
         osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: 0, detune: 700 },
         filter: { type: 'lowpass', cutoff: 2000, resonance: 10, envAmount: 6000 },
         filterEnv: { attack: 0.02, decay: 0.6, sustain: 0.2, release: 0.4 },
-        ampEnv: { attack: 0.01, decay: 1, sustain: 0.5 },
+        ampEnv: { attack: 0.01, decay: 1, sustain: 0.5, release: 1.0 },
     },
     modMatrix: { 'filterEnv': { 'osc2Pitch': true } },
 };
@@ -74,7 +74,7 @@ defaultPresets[3] = {
         osc1: { ...initialSynthState.osc1, type: 'square', octave: -2, waveshapeAmount: 0.3, waveshapeType: 'soft' },
         osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: -1, waveshapeAmount: 0.3, waveshapeType: 'soft' },
         filter: { type: 'lowpass', cutoff: 400, resonance: 15, envAmount: 100 },
-        ampEnv: { attack: 0.02, decay: 0.3, sustain: 0.9 },
+        ampEnv: { attack: 0.02, decay: 0.3, sustain: 0.9, release: 0.3 },
         lfo1: { type: 'sine', rate: 8 },
     },
     modMatrix: { 'lfo1': { 'filterCutoff': true } },
@@ -86,7 +86,7 @@ defaultPresets[4] = {
         ...initialSynthState,
         osc1: { ...initialSynthState.osc1, type: 'triangle', octave: 0 },
         osc2: { ...initialSynthState.osc2, type: 'triangle', octave: 0, detune: 700 },
-        ampEnv: { attack: 0.1, decay: 0.8, sustain: 0.5 },
+        ampEnv: { attack: 0.1, decay: 0.8, sustain: 0.5, release: 0.5 },
     },
     modMatrix: {},
 };
@@ -97,7 +97,7 @@ defaultPresets[5] = {
         ...initialSynthState,
         osc1: { ...initialSynthState.osc1, type: 'sawtooth', octave: 0 },
         osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: 0, detune: 500 },
-        ampEnv: { attack: 0.01, decay: 1.2, sustain: 0.3 },
+        ampEnv: { attack: 0.01, decay: 1.2, sustain: 0.3, release: 1.2 },
     },
     modMatrix: {},
 };
@@ -110,7 +110,7 @@ defaultPresets[6] = {
         osc2: { ...initialSynthState.osc2, type: 'sine', octave: -1, fmDepth: 1000 },
         filter: { type: 'bandpass', cutoff: 5000, resonance: 25, envAmount: 4000 },
         filterEnv: { attack: 1.5, decay: 2, sustain: 0.5, release: 2 },
-        ampEnv: { attack: 1, decay: 2, sustain: 1 },
+        ampEnv: { attack: 1, decay: 2, sustain: 1, release: 2.5 },
         lfo1: { type: 'sine', rate: 0.2 },
         lfo2: { type: 'square', rate: 10 },
     },
@@ -124,12 +124,105 @@ defaultPresets[7] = {
         osc1: { ...initialSynthState.osc1, type: 'pwm', octave: -1, waveshapeAmount: 0.8, waveshapeType: 'bitcrush' },
         osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: -2, waveshapeAmount: 0.5, waveshapeType: 'hard' },
         filter: { type: 'lowpass', cutoff: 1500, resonance: 5, envAmount: 3000 },
-        ampEnv: { attack: 0.01, decay: 0.2, sustain: 1 },
+        ampEnv: { attack: 0.01, decay: 0.2, sustain: 1, release: 0.2 },
         lfo1: { type: 'sawtooth', rate: 15 },
     },
     modMatrix: { 'lfo1': { 'osc1Wave': true } },
 };
-
+// Preset 8: Supersaw Lead
+defaultPresets[8] = {
+    id: 8, name: 'Supersaw Lead',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'supersaw', octave: 0, detune: 12 },
+        osc2: { ...initialSynthState.osc2, type: 'supersaw', octave: -1, detune: -12 },
+        oscMix: 0.4,
+        filter: { type: 'lowpass', cutoff: 6000, resonance: 4, envAmount: 4000 },
+        filterEnv: { attack: 0.05, decay: 0.8, sustain: 0.3, release: 0.6 },
+        ampEnv: { attack: 0.02, decay: 1, sustain: 0.8, release: 1.0 },
+    },
+    modMatrix: { 'lfo1': { 'filterCutoff': true } },
+};
+// Preset 9: Riser FX
+defaultPresets[9] = {
+    id: 9, name: 'Riser FX',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sawtooth', octave: 0 },
+        osc2: { ...initialSynthState.osc2, type: 'sawtooth', octave: 1, detune: 15 },
+        filter: { type: 'highpass', cutoff: 100, resonance: 10, envAmount: 8000 },
+        filterEnv: { attack: 4, decay: 0.1, sustain: 1, release: 0.1 },
+        ampEnv: { attack: 0.01, decay: 4, sustain: 1, release: 0.1 },
+    },
+    modMatrix: {},
+};
+// Preset 10: Trance Pluck
+defaultPresets[10] = {
+    id: 10, name: 'Trance Pluck',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sawtooth' },
+        osc2: { ...initialSynthState.osc2, type: 'square', detune: 5 },
+        filter: { type: 'lowpass', cutoff: 1500, resonance: 5, envAmount: 5000 },
+        filterEnv: { attack: 0.01, decay: 0.3, sustain: 0, release: 0.2 },
+        ampEnv: { attack: 0.01, decay: 0.4, sustain: 0, release: 0.3 },
+    },
+    modMatrix: {},
+};
+// Preset 11: 8 Bit Arp
+defaultPresets[11] = {
+    id: 11, name: '8 Bit Arp',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'square', waveshapeType: 'bitcrush', waveshapeAmount: 0.7 },
+        osc2: { ...initialSynthState.osc2, type: 'square', octave: -1, detune: 0 },
+        filter: { type: 'lowpass', cutoff: 12000, resonance: 0, envAmount: 0 },
+        ampEnv: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.15 },
+        globalGateTime: 0.1,
+    },
+    modMatrix: {},
+};
+// Preset 12: Lush Pad
+defaultPresets[12] = {
+    id: 12, name: 'Lush Pad',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'supersaw', detune: 8 },
+        osc2: { ...initialSynthState.osc2, type: 'triangle', octave: -1, detune: -8 },
+        filter: { type: 'lowpass', cutoff: 4000, resonance: 3, envAmount: 2000 },
+        filterEnv: { attack: 1.5, decay: 2, sustain: 0.7, release: 2.5 },
+        ampEnv: { attack: 1.2, decay: 3, sustain: 0.9, release: 3.0 },
+        lfo1: { type: 'sine', rate: 0.3 },
+    },
+    modMatrix: { 'lfo1': { 'osc1Pitch': true, 'osc2Pitch': true } },
+};
+// Preset 13: Sub Bass
+defaultPresets[13] = {
+    id: 13, name: 'Sub Bass',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'sine', octave: -2 },
+        osc2: { ...initialSynthState.osc2, type: 'sine', octave: -2, detune: 2 },
+        oscMix: 0.5,
+        filter: { type: 'lowpass', cutoff: 300, resonance: 1, envAmount: 100 },
+        ampEnv: { attack: 0.02, decay: 0.3, sustain: 1, release: 0.3 },
+    },
+    modMatrix: {},
+};
+// Preset 14: Hardstyle Pitch Kick
+defaultPresets[14] = {
+    id: 14, name: 'Hard Pitch Kick',
+    synth: {
+        ...initialSynthState,
+        osc1: { ...initialSynthState.osc1, type: 'square', octave: 1, waveshapeType: 'hard', waveshapeAmount: 0.9 },
+        osc2: { ...initialSynthState.osc2, type: 'square', octave: 0 },
+        filter: { type: 'lowpass', cutoff: 800, resonance: 2, envAmount: 2000 },
+        filterEnv: { attack: 0.01, decay: 0.15, sustain: 0, release: 0.1 },
+        ampEnv: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.3 },
+        globalGateTime: 0.3,
+    },
+    modMatrix: { 'filterEnv': { 'osc1Pitch': true } },
+};
 
 
 const initialState: AppState = {
@@ -204,6 +297,7 @@ const initialState: AppState = {
     synthModMatrix: {},
     synthPresets: defaultPresets,
     synthModPatches: Array(16).fill(null),
+    keyboardSource: 'SAMPLE',
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -1033,6 +1127,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
                     attack: randomFloat(0.001, 0.5),
                     decay: randomFloat(0.1, 2),
                     sustain: randomFloat(0, 1),
+                    release: randomFloat(0.1, 3),
                 },
                 lfo1: { ...state.synth.lfo1, rate: randomFloat(0.1, 20) },
                 lfo2: { ...state.synth.lfo2, rate: randomFloat(0.1, 20) },
@@ -1077,17 +1172,24 @@ const appReducer = (state: AppState, action: Action): AppState => {
             }
             return { ...state, synthModPatches: newPatches };
         }
-        case ActionType.SAVE_SYNTH_PRESET: {
-            const { name, synth, matrix } = action.payload;
+        case ActionType.SAVE_SYNTH_PRESET_AT_INDEX: {
+            const { index, name, synth, matrix } = action.payload;
             const newPresets = [...state.synthPresets];
-            const firstEmptyIndex = newPresets.findIndex(p => p === null);
-            if (firstEmptyIndex !== -1) {
-                newPresets[firstEmptyIndex] = {
-                    id: firstEmptyIndex,
+            if (index >= 0 && index < newPresets.length) {
+                newPresets[index] = {
+                    id: index,
                     name: name,
                     synth: JSON.parse(JSON.stringify(synth)),
                     modMatrix: JSON.parse(JSON.stringify(matrix)),
                 };
+            }
+            return { ...state, synthPresets: newPresets };
+        }
+        case ActionType.CLEAR_SYNTH_PRESET_AT_INDEX: {
+            const { index } = action.payload;
+            const newPresets = [...state.synthPresets];
+             if (index >= 0 && index < newPresets.length) {
+                newPresets[index] = null;
             }
             return { ...state, synthPresets: newPresets };
         }
@@ -1099,6 +1201,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 synthModMatrix: JSON.parse(JSON.stringify(preset.modMatrix)),
             };
         }
+        case ActionType.SET_KEYBOARD_SOURCE:
+            return { ...state, keyboardSource: action.payload };
         default:
             return state;
     }
