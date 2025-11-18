@@ -82,22 +82,19 @@ export interface BankPresetData {
 }
 
 // --- Synth ---
-export type StandardOscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle';
-export type CustomOscillatorType = 'supersaw' | 'pwm';
-export type OscillatorWaveform = StandardOscillatorType | CustomOscillatorType;
-export type WaveShaperType = 'soft' | 'hard' | 'bitcrush';
-
 export interface SynthOscillator {
-    type: OscillatorWaveform;
-    octave: number; // -2 to 2
+    type: string;
+    octave: number; // -4 to 2
     detune: number; // in cents
     fmDepth: number;
     waveshapeAmount: number;
-    waveshapeType: WaveShaperType;
+    waveshapeType: string; // Now a string
+    wsLfoAmount?: number; // 0-1 for LFO1 -> Waveshape Amount
     sync?: boolean; // only for osc1
+    pitchEnvAmount?: number; // Cents of modulation from filter env
 }
 
-// FIX: Define and export BiquadFilterType, which was used in SynthFilter but not defined.
+// This is the native type for the Web Audio API node
 export type BiquadFilterType =
   | 'lowpass'
   | 'highpass'
@@ -105,10 +102,11 @@ export type BiquadFilterType =
   | 'notch'
   | 'allpass'
   | 'lowshelf'
-  | 'highshelf';
+  | 'highshelf'
+  | 'peaking'; // Add peaking for new filter type
 
 export interface SynthFilter {
-    type: BiquadFilterType;
+    type: string; // Can be a descriptive name like 'Lowpass 24dB'
     cutoff: number; // in Hz
     resonance: number;
     envAmount: number;
@@ -118,20 +116,17 @@ export interface SynthFilterEnvelope {
     attack: number; // in seconds
     decay: number;
     sustain: number; // 0-1
-    release: number;
 }
 
 export interface SynthAmpEnvelope {
-    attack: number;
     decay: number;
-    sustain: number; // 0-1
-    release: number;
 }
 
 
 export interface SynthLFO {
-    type: OscillatorType;
-    rate: number; // in Hz
+    type: string; // Now a string to accommodate more types
+    rate: number; // in Hz or index for sync mode
+    rateMode: 'hz' | 'sync';
 }
 
 export interface Synth {
@@ -148,7 +143,7 @@ export interface Synth {
 
 export interface ModMatrix {
     [source: string]: {
-        [destination: string]: boolean;
+        [destination: string]: number;
     };
 }
 
@@ -208,6 +203,7 @@ export interface AppState {
     // Synth state
     synth: Synth;
     synthModMatrix: ModMatrix;
+    isModMatrixMuted: boolean;
     synthPresets: (SynthPreset | null)[];
     synthModPatches: (ModPatch | null)[];
     keyboardSource: 'SAMPLE' | 'SYNTH';
@@ -270,6 +266,8 @@ export enum ActionType {
     UPDATE_SYNTH_PARAM,
     RANDOMIZE_SYNTH_PARAMS,
     SET_SYNTH_MOD_MATRIX,
+    TOGGLE_SYNTH_MOD_MATRIX_MUTE,
+    CLEAR_SYNTH_MOD_MATRIX,
     RANDOMIZE_SYNTH_MOD_MATRIX,
     SAVE_SYNTH_MOD_PATCH,
     SAVE_SYNTH_PRESET_AT_INDEX,
@@ -335,7 +333,9 @@ export type Action =
     // Synth Actions
     | { type: ActionType.UPDATE_SYNTH_PARAM; payload: { path: string; value: string | number | boolean } }
     | { type: ActionType.RANDOMIZE_SYNTH_PARAMS }
-    | { type: ActionType.SET_SYNTH_MOD_MATRIX; payload: { source: string; dest: string; value: boolean } }
+    | { type: ActionType.SET_SYNTH_MOD_MATRIX; payload: { source: string; dest: string; value: number } }
+    | { type: ActionType.TOGGLE_SYNTH_MOD_MATRIX_MUTE }
+    | { type: ActionType.CLEAR_SYNTH_MOD_MATRIX }
     | { type: ActionType.RANDOMIZE_SYNTH_MOD_MATRIX }
     | { type: ActionType.SAVE_SYNTH_MOD_PATCH; payload: { name: string, matrix: ModMatrix } }
     | { type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX; payload: { index: number, name: string, synth: Synth, matrix: ModMatrix } }

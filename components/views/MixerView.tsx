@@ -3,6 +3,7 @@ import { AppContext } from '../../context/AppContext';
 import { ActionType, MasterCompressorParams } from '../../types';
 import Fader from '../Fader';
 import { TOTAL_BANKS } from '../../constants';
+import CpuMeter from '../CpuMeter';
 
 interface MixerViewProps {
     startMasterRecording: () => void;
@@ -103,9 +104,10 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                 ))}
             </div>
             {/* Master Channel */}
-            <div className="w-1/5 flex flex-col items-center space-y-4 border-l-2 border-emerald-100 pl-4">
+            <div className="w-1/4 flex flex-col items-center space-y-4 border-l-2 border-emerald-100 pl-4">
                 <div className="flex flex-col items-center space-y-2">
                     <h3 className="font-bold text-slate-600">Master</h3>
+                     <CpuMeter />
                     <button
                         onClick={handleRecordToggle}
                         disabled={!isInitialized || (isPlaying && !isMasterRecording)}

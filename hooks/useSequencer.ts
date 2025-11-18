@@ -1,7 +1,7 @@
 
 import { useContext, useEffect, useRef } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType, PlaybackParams, Sample } from '../types';
+import { ActionType, PlaybackParams, Sample, Step } from '../types';
 import { STEPS_PER_PART, GROOVE_PATTERNS, TOTAL_BANKS, PADS_PER_BANK } from '../constants';
 import SCALES from '../scales';
 
@@ -149,20 +149,26 @@ export const useSequencer = (
                 const isSynthBank = nextTrackIndex === 3;
 
                 if (isSynthBank) {
-                     // Find the first active step in the bank for this displayStep and play it.
+                    const activeNotes: { sampleId: number; stepInfo: Step }[] = [];
                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
                         const stepInfo = pattern.steps[sampleId]?.[displayStep];
                         if (stepInfo?.active) {
-                            let finalDetune = stepInfo.detune ?? 0;
-
-                            // --- Non-destructive Playback Scale Logic ---
-                            if (pattern.playbackScale && pattern.playbackScale !== 'Thru') {
-                                finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
-                            }
-                            // --- End Logic ---
-                            playSynthNote(finalDetune, scheduledTime);
-                            break; // Play only the first found note for monophonic synth
+                            activeNotes.push({ sampleId, stepInfo });
                         }
+                    }
+                    
+                    // Enforce strict monophony: only play the note on the lowest active pad number.
+                    if (activeNotes.length > 0) {
+                        // The loop already ensures the first one found is the lowest, but this is more explicit.
+                        const noteToPlay = activeNotes.sort((a, b) => a.sampleId - b.sampleId)[0];
+                        let finalDetune = noteToPlay.stepInfo.detune ?? 0;
+
+                        // --- Non-destructive Playback Scale Logic ---
+                        if (pattern.playbackScale && pattern.playbackScale !== 'Thru') {
+                            finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
+                        }
+                        // --- End Logic ---
+                        playSynthNote(finalDetune, scheduledTime);
                     }
                 } else {
                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {

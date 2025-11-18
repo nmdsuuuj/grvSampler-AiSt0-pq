@@ -1,7 +1,7 @@
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType, Sample, PlaybackParams, CustomOscillatorType, WaveShaperType } from '../types';
-import { PADS_PER_BANK, TOTAL_BANKS, TOTAL_SAMPLES } from '../constants';
+import { ActionType, Sample, PlaybackParams, BiquadFilterType } from '../types';
+import { PADS_PER_BANK, TOTAL_BANKS, TOTAL_SAMPLES, LFO_SYNC_RATES } from '../constants';
 
 const RAMP_TIME = 0.005; // 5ms ramp for all parameter changes to prevent clicks
 
@@ -25,19 +25,224 @@ type SynthGraphNodes = {
     mixer: GainNode;
     fm1Gain: GainNode; // Modulates osc1 freq
     fm2Gain: GainNode; // Modulates osc2 freq
-    filterNode: BiquadFilterNode;
+    preFilterGain: GainNode; // Gain before standard filters
+    filterNode1: BiquadFilterNode;
+    filterNode2: BiquadFilterNode;
+    // For new filters
+    combDelay: DelayNode;
+    combFeedbackGain: GainNode;
+    combInGain: GainNode;
+    combOutGain: GainNode;
+    formantInGain: GainNode;
+    formantFilters: BiquadFilterNode[];
+    formantOutGain: GainNode;
     vca: GainNode;
     lfo1: OscillatorNode;
     lfo2: OscillatorNode;
     modGains: { [key: string]: GainNode }; // For LFO -> destination modulation
+    lfo1_ws1_modGain: GainNode;
+    lfo1_ws2_modGain: GainNode;
 };
 
 // Type for the currently playing note's sources
+// FIX: Changed AudioNode to a more specific type to allow access to methods like .stop()
 type ActiveNoteSources = {
-    oscNode1: OscillatorNode;
-    oscNode2: OscillatorNode;
+    oscSource1: OscillatorNode | AudioBufferSourceNode;
+    oscSource2: OscillatorNode | AudioBufferSourceNode;
 };
 
+// --- Synth Audio Generation Helpers (outside hook for memoization) ---
+const makeDistortionCurve = (type: string, amount: number): Float32Array => {
+    const k = amount;
+    const n_samples = 4096;
+    const curve = new Float32Array(n_samples);
+    const pi = Math.PI;
+    for (let i = 0; i < n_samples; ++i) {
+        const x = i * 2 / n_samples - 1;
+        switch(type) {
+            case 'Hard Clip': curve[i] = Math.max(-1, Math.min(1, x * (1 + k * 10))); break;
+            case 'Soft Clip': curve[i] = Math.tanh(x * (1 + k * 4)); break;
+            case 'Bitcrush': const bits = Math.round(16 * (1 - k)); const steps = Math.pow(2, Math.max(1, bits)); curve[i] = Math.round(x * steps) / steps; break;
+            case 'Foldback': curve[i] = Math.sin(x * (1 + k * 10)); break;
+            case 'Arctan': curve[i] = Math.atan(x * (1 + k * 10)) / (pi / 2); break;
+            case 'Tanh': curve[i] = Math.tanh(x * (1 + k * 10)); break;
+            case 'Sine Warp': curve[i] = Math.sin(pi * x * (1 + k)); break;
+            case 'Half Rectify': curve[i] = Math.max(0, x); break;
+            case 'Full Rectify': curve[i] = Math.abs(x); break;
+            case 'Gloubi': const a = 1 + k * 100; curve[i] = (x > 0 ? 1 : -1) * (1 - Math.exp(-a * Math.abs(x))); break;
+            case 'Expo Clip': curve[i] = (x > 0 ? 1 : -1) * (1 - Math.exp(-Math.abs(x) * (1 + k * 5))); break;
+            case 'Hard Limit': curve[i] = Math.max(-1 + k, Math.min(1 - k, x)); break;
+            case 'Germanium': curve[i] = x < 0.2 ? x : 0.2 + (x - 0.2) * (0.1 + 0.9 * (1 - k)); break;
+            case 'Silicon': curve[i] = x < 0.7 ? x : 0.7 + (x - 0.7) * (0.01 + 0.99 * (1 - k)); break;
+            case 'Tube': const q = x / (1 - k * 0.9); curve[i] = q / (1 + Math.abs(q)) / (1 / (1 + Math.abs(1))); break;
+            case 'Fuzz': const blend = x * (k * 10 + 1); curve[i] = (blend > 0 ? 1 : -1) * (1 - Math.exp(-Math.abs(blend))); break;
+            case 'Diode': const vd = 0.2, vt = 0.025; curve[i] = x > vd ? x - vd : (vt * Math.log(1 + x/vt)); break;
+            case 'Chebyshev': const cheby_n = 2 + Math.floor(k * 8); let cheby_x = x; let T0 = 1, T1 = x, Tn = 0; for(let j=2; j<=cheby_n; j++) { Tn = 2*x*T1 - T0; T0 = T1; T1 = Tn; } curve[i] = T1; break;
+            case 'Resampler': const rate = Math.pow(2, Math.floor(k * 6)); curve[i] = Math.floor(x * rate) / rate; break;
+            case 'Asymmetric': curve[i] = x > 0 ? Math.tanh(x * (1 + k * 5)) : Math.tanh(x * (1 + (k/2) * 5)); break;
+            case 'Phase Shift': curve[i] = Math.sin(x*pi + k*pi); break;
+            case 'Quantize': const levels = 2 + Math.floor(k * 30); curve[i] = Math.round(x * levels) / levels; break;
+            case 'S-Curve': curve[i] = (3 * x - Math.pow(x, 3)) / 2; break;
+            case 'Crossover': const cross_thresh = k; curve[i] = Math.abs(x) < cross_thresh ? 0 : x; break;
+            case 'Saturator': curve[i] = x / (1 - k + k * Math.abs(x)); break;
+            case 'Digital OD': const digi_k = 1-k; curve[i] = x > digi_k ? digi_k : (x < -digi_k ? -digi_k : x); break;
+            case 'Tape': curve[i] = Math.tanh(x + k * Math.pow(x, 3)); break;
+            case 'Transistor': const vbe = 0.7; curve[i] = x < vbe ? 0 : x - vbe * (1-k); break;
+            case 'Diode Rectify': curve[i] = x > 0 ? x * (1 - k) : 0; break;
+            case 'Sine Fold': curve[i] = Math.sin(x*pi*(1 + k*5)); break;
+            case 'Crush Fold': const crush_bits = Math.round(16 * (1 - k)); const crush_steps = Math.pow(2, Math.max(1, crush_bits)); const crushed = Math.round(x * crush_steps) / crush_steps; curve[i] = Math.sin(crushed * pi * 5); break;
+            case 'Parabolic Shaper': curve[i] = x * (1 + k) - k * x * Math.abs(x); break;
+            default: curve[i] = x; break;
+        }
+    }
+    return curve;
+};
+
+const lfoWaveCache = new Map<string, PeriodicWave>();
+const createLfoWave = (type: string, audioContext: AudioContext): PeriodicWave => {
+    if (lfoWaveCache.has(type)) {
+        return lfoWaveCache.get(type)!;
+    }
+    const n = 4096;
+    const real = new Float32Array(n);
+    const imag = new Float32Array(n);
+    imag[0] = 0; real[0] = 0;
+
+    for (let i = 1; i < n; i++) {
+        const pi_i = Math.PI * i;
+        switch(type) {
+            case 'Sine': imag[i] = (i === 1) ? 1 : 0; break;
+            case 'Triangle': if (i % 2 !== 0) imag[i] = 8 * Math.sin(pi_i / 2) / (pi_i * pi_i); break;
+            case 'Square': if (i % 2 !== 0) imag[i] = 4 / pi_i; break;
+            case 'Saw Down': imag[i] = 2 / pi_i; break;
+            case 'Saw Up': imag[i] = -2 / pi_i; break;
+            case 'Pulse 25%': imag[i] = (2 / pi_i) * Math.sin(pi_i / 2); break;
+            case 'Pulse 10%': imag[i] = (2 / pi_i) * Math.sin(pi_i * 0.2); break;
+            case 'S&H Smooth': if (i < 32) imag[i] = (Math.random() * 2 - 1) / i; break;
+            case 'Sine Half': for (let j=1; j<n; j++) imag[j] = j === 1 ? 1 : (j % 2 === 0 ? 2 / (Math.PI * (1 - j*j)) : 0); real[1] = 1/Math.PI; break;
+            case 'Sine Quarter': for (let j=1; j<n; j++) real[j] = Math.cos(pi_i/2) / (1-i*i) * (4/Math.PI); break;
+            case 'Expo Up': for (let j=1; j<n; j++) imag[j] = (2 * (pi_i * Math.cos(pi_i) - Math.sin(pi_i))) / (pi_i * pi_i); break;
+            case 'Expo Down': for (let j=1; j<n; j++) imag[j] = (2 * (Math.sin(pi_i) - pi_i)) / (pi_i * pi_i); break;
+            case 'Stairs 4': for (let j=1; j<n; j++) imag[j] = (j % 4 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/2)) : 0; break;
+            case 'Stairs 8': for (let j=1; j<n; j++) imag[j] = (j % 8 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/4)) : 0; break;
+            case 'Stairs 16': for (let j=1; j<n; j++) imag[j] = (j % 16 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/8)) : 0; break;
+            case 'Tri-Sine': if (i % 2 !== 0) imag[i] = 4 * Math.sin(pi_i / 2) / (pi_i * pi_i * pi_i); break;
+            case 'Bouncing Ball': for(let j=1; j<n; j++) imag[j] = Math.exp(-j/5) * Math.abs(Math.sin(j*0.5)); break;
+            case 'Jitter': for(let j=1; j<n; j++) if (j < 64) imag[j] = (Math.random() - 0.5) / Math.sqrt(j); break;
+            case 'Ramp Up': for(let j=1; j<n; j++) imag[j] = -2 * Math.cos(pi_i) / pi_i; break;
+            case 'Ramp Down': for(let j=1; j<n; j++) imag[j] = 2 * Math.cos(pi_i) / pi_i; break;
+            case 'Spike': if (i % 2 !== 0) for(let j=1; j<n; j++) imag[j] = Math.pow(-1, (j-1)/2) / (j*j); break;
+            case 'Random Ramp': for(let j=1; j<n; j++) imag[j] = (Math.random() > 0.5 ? 2 : -2) * Math.cos(pi_i) / pi_i; break;
+            case 'Random Steps': for(let j=1; j<n; j++) imag[j] = (Math.random() * 2 - 1) / j; break;
+            case 'S&H Gliss': if (i < 16) imag[i] = (Math.random() > 0.5 ? 1 : -1) / i; break;
+            case 'Sine Bend Up': imag[i] = (i === 1) ? 1 : (i === 2) ? 0.5 : 0; break;
+            case 'Sine Bend Down': imag[i] = (i === 1) ? 1 : (i === 2) ? -0.5 : 0; break;
+            case 'Cubic': if (i % 2 !== 0) imag[i] = 96 * (pi_i*pi_i - 8) * Math.sin(pi_i) / (pi_i*pi_i*pi_i*pi_i*pi_i); break;
+            case 'Parabolic': if (i % 2 === 0) imag[i] = 16 * Math.sin(pi_i/2) / (pi_i*pi_i*pi_i); break;
+            case 'Chaotic 1': for(let j=1; j<n; j++) imag[j] = Math.sin(j*j) / j; break;
+            case 'Chaotic 2': for(let j=1; j<n; j++) imag[j] = Math.cos(j*Math.log(j)) / j; break;
+            case 'Weird': for(let j=1; j<n; j++) imag[j] = Math.sin(Math.tan(j)) / j; break;
+            case 'S&H Steps': imag[i] = (Math.random() * 2 - 1) / i; break;
+            default: imag[i] = (i === 1) ? 1 : 0; break;
+        }
+    }
+    const wave = audioContext.createPeriodicWave(real, imag, { disableNormalization: true });
+    lfoWaveCache.set(type, wave);
+    return wave;
+};
+
+const oscWaveCache = new Map<string, PeriodicWave>();
+const noiseBufferCache = new Map<string, AudioBuffer>();
+
+const createOscillatorSource = (type: string, audioContext: AudioContext): OscillatorNode | AudioBufferSourceNode => {
+    if (type === 'Noise' || type === 'Glitch') {
+         if (noiseBufferCache.has(type)) {
+            const source = audioContext.createBufferSource();
+            source.buffer = noiseBufferCache.get(type)!;
+            source.loop = true;
+            return source;
+        }
+        const bufferSize = audioContext.sampleRate * 2;
+        const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+        const output = buffer.getChannelData(0);
+        if (type === 'Noise') {
+             for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+        } else { // Glitch
+            let last = 0;
+            for (let i = 0; i < bufferSize; i++) {
+                if (Math.random() < 0.001) last = Math.random() * 2 - 1;
+                output[i] = last;
+            }
+        }
+        noiseBufferCache.set(type, buffer);
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+        return source;
+    }
+
+    const osc = audioContext.createOscillator();
+    const standardTypes: { [key: string]: OscillatorType } = {
+        'Sine': 'sine', 'Square': 'square', 'Saw Down': 'sawtooth', 'Triangle': 'triangle',
+    };
+    if (standardTypes[type]) {
+        osc.type = standardTypes[type];
+        return osc;
+    }
+
+    if (oscWaveCache.has(type)) {
+        osc.setPeriodicWave(oscWaveCache.get(type)!);
+        return osc;
+    }
+
+    const n = 4096;
+    const real = new Float32Array(n);
+    const imag = new Float32Array(n);
+    imag[0] = 0; real[0] = 0;
+
+    for (let i = 1; i < n; i++) {
+        const pi_i = Math.PI * i;
+        switch(type) {
+            case 'Saw Up': imag[i] = -2 / pi_i; break;
+            case 'Pulse 75%': for (let k=1; k<n; k++) if (k % 4 !== 0) imag[k] = (2/(k*Math.PI)); break;
+            case 'Pulse 25%': for (let k=1; k<n; k++) imag[k] = (2/(k*Math.PI)) * Math.sin(k * Math.PI / 2); break;
+            case 'Pulse 10%': for (let k=1; k<n; k++) imag[k] = (2/(k*Math.PI)) * Math.sin(k * Math.PI / 5); break;
+            case 'Supersaw': for (let j=1; j<20; j++) imag[j] = (Math.random() * 2 - 1) / j; break;
+            case 'PWM': for (let j=1; j<n; j++) real[j] = Math.sin(Math.PI * j * 0.2) / (j * Math.PI); break;
+            case 'Tri-Saw': if (i % 2 !== 0) imag[i] = (8 * Math.sin(pi_i / 2) / (pi_i * pi_i)) + (1 / pi_i); break;
+            case 'Tri-Square': if (i % 2 !== 0) imag[i] = (8 * Math.sin(pi_i / 2) / (pi_i * pi_i)) + (2 / pi_i); break;
+            case 'Half-Sine': for (let j=1; j<n; j++) imag[j] = j === 1 ? 1 : (j % 2 === 0 ? 2 / (Math.PI * (1 - j*j)) : 0); real[1] = 1/Math.PI; break;
+            case 'Full-Sine': for (let j=2; j<n; j+=2) imag[j] = 4 / (Math.PI * (1 - j*j)); break;
+            case 'Bell': for(let j=1; j<n; j++) imag[j] = Math.exp(-j/10) * Math.sin(j*0.2); break;
+            case 'Organ': for(let j of [1,2,3,4,6,8]) imag[j] = 1 / j; break;
+            case 'Detuned': for (let j=1; j<10; j++) imag[j] = (j%2===0 ? 0.5 : 1) / j; for (let j=1; j<10; j++) real[j] = (j%2!==0 ? 0.5 : 1) / j; break;
+            case 'Pluck': for (let j=1; j<n; j++) imag[j] = 1 / (j*j); break;
+            case 'Metallic': for (let j of [1, 2.7, 4.1, 5.4, 6.8, 8.2]) if (Math.round(j) < n) imag[Math.round(j)] = 1/j; break;
+            case 'Glass': for (let j of [1, 3.2, 5.9, 8.1]) if (Math.round(j) < n) imag[Math.round(j)] = 1/j; break;
+            case 'Harmonic': for (let j=1; j<16; j+=2) imag[j] = 1/j; break;
+            case 'Formant': for (let j of [3, 5, 8, 12]) imag[j] = 1 / j; break;
+            case 'Growl': for (let j=1; j<10; j++) imag[j] = 1/j; real[2] = 0.5; break;
+            case 'Wobble': for (let j of [1, 1.5, 2, 2.5]) if(Math.round(j)<n) imag[Math.round(j)] = 1/j; break;
+            case 'Digital': for (let j=1; j<16; j++) imag[j] = Math.random() < 0.5 ? 1/j : 0; break;
+            case 'Resonant': if (i<32) imag[i] = 1 - (i/32); break;
+            case 'Choir': for(let j of [1,2,4,8]) imag[j] = Math.exp(-j/10); break;
+            case 'Voice': for(let j=1; j<10; j++) imag[j] = Math.sin(pi_i / 2) / j; break;
+            case 'Bass': for (let j of [1,2]) imag[j] = 1; break;
+            case 'Reverse Saw': imag[i] = 2 / pi_i * (i%2===0 ? 1 : -1); break;
+            default: imag[i] = (i === 1) ? 1 : 0; break; // Default to Sine
+        }
+    }
+
+    const wave = audioContext.createPeriodicWave(real, imag, { disableNormalization: false });
+    oscWaveCache.set(type, wave);
+    osc.setPeriodicWave(wave);
+    return osc;
+};
+
+
+// --- Main Hook ---
 export const useAudioEngine = () => {
     const { state, dispatch } = useContext(AppContext);
     const { audioContext, samples, bankVolumes, bankPans, bankMutes, bankSolos, isRecording, isArmed, recordingThreshold, activeSampleId, masterVolume, masterCompressorOn, masterCompressorParams, synth, synthModMatrix } = state;
@@ -91,7 +296,7 @@ export const useAudioEngine = () => {
             const robustCurve = new Float32Array(4096);
             for (let i = 0; i < 4096; i++) {
                 const x = (i - 2048) / 2048;
-                robustCurve[i] = Math.max(-1, Math.min(1, x));
+                robustCurve[i] = Math.tanh(x);
             }
             clipper.curve = robustCurve;
             masterClipperRef.current = clipper;
@@ -164,10 +369,24 @@ export const useAudioEngine = () => {
             const mixer = audioContext.createGain();
             const fm1Gain = audioContext.createGain();
             const fm2Gain = audioContext.createGain();
-            const filterNode = audioContext.createBiquadFilter();
+            const preFilterGain = audioContext.createGain();
+            const filterNode1 = audioContext.createBiquadFilter();
+            const filterNode2 = audioContext.createBiquadFilter();
             const vca = audioContext.createGain();
             const lfo1 = audioContext.createOscillator();
             const lfo2 = audioContext.createOscillator();
+            const lfo1_ws1_modGain = audioContext.createGain();
+            const lfo1_ws2_modGain = audioContext.createGain();
+
+            // Special Filter Nodes
+            const combDelay = audioContext.createDelay(1.0);
+            const combFeedbackGain = audioContext.createGain();
+            const combInGain = audioContext.createGain();
+            const combOutGain = audioContext.createGain();
+            const formantInGain = audioContext.createGain();
+            const formantFilters = [audioContext.createBiquadFilter(), audioContext.createBiquadFilter(), audioContext.createBiquadFilter()];
+            const formantOutGain = audioContext.createGain();
+
 
             // --- Build Audio Graph ---
             shaper1InputGain.connect(shaper1);
@@ -176,8 +395,32 @@ export const useAudioEngine = () => {
             shaper2InputGain.connect(shaper2);
             shaper2.connect(osc2Gain);
             osc2Gain.connect(mixer);
-            mixer.connect(filterNode);
-            filterNode.connect(vca);
+            
+            // --- Flexible Filter Routing ---
+            mixer.connect(preFilterGain);
+            mixer.connect(combInGain);
+            mixer.connect(formantInGain);
+
+            // Standard Path
+            preFilterGain.connect(filterNode1);
+            filterNode1.connect(filterNode2);
+            filterNode2.connect(vca);
+
+            // Comb Path
+            combInGain.connect(combDelay);
+            combDelay.connect(combFeedbackGain);
+            combFeedbackGain.connect(combDelay); // Feedback loop
+            combDelay.connect(combOutGain);
+            combOutGain.connect(vca);
+            
+            // Formant Path
+            formantFilters.forEach(f => {
+                formantInGain.connect(f);
+                f.connect(formantOutGain);
+            });
+            formantOutGain.connect(vca);
+
+
             const bankIndex = 3;
             if (bankGainsRef.current[bankIndex]) {
                 vca.connect(bankGainsRef.current[bankIndex]);
@@ -196,22 +439,39 @@ export const useAudioEngine = () => {
                     modGains[`${source}_${dest}`] = gainNode;
                     modSourceNode.connect(gainNode);
 
-                    // Connect modulation gains to their destinations (except for pitch, which is dynamic)
-                    if (dest === 'osc1FM') gainNode.connect(fm2Gain.gain);
-                    if (dest === 'osc2FM') gainNode.connect(fm1Gain.gain);
-                    if (dest === 'osc1Wave') gainNode.connect(shaper1InputGain.gain);
-                    if (dest === 'osc2Wave') gainNode.connect(shaper2InputGain.gain);
-                    if (dest === 'filterCutoff') gainNode.connect(filterNode.frequency);
-                    if (dest === 'filterQ') gainNode.connect(filterNode.Q);
+                    // Connect modulation gains to their destinations (except for pitch and dedicated wave, which are dynamic)
+                    if (dest === 'osc1FM') gainNode.connect(fm1Gain.gain);
+                    if (dest === 'osc2FM') gainNode.connect(fm2Gain.gain);
+                    if (dest === 'osc1Wave' && source === 'lfo2') gainNode.connect(shaper1InputGain.gain); // only LFO2 via matrix
+                    if (dest === 'osc2Wave' && source === 'lfo2') gainNode.connect(shaper2InputGain.gain); // only LFO2 via matrix
+                    if (dest === 'filterCutoff') {
+                        gainNode.connect(filterNode1.frequency);
+                        gainNode.connect(filterNode2.frequency);
+                    }
+                    if (dest === 'filterQ') {
+                         gainNode.connect(filterNode1.Q);
+                         gainNode.connect(filterNode2.Q);
+                    }
                 });
             });
             
+            // Dedicated LFO1 -> Waveshape connections
+            lfo1_ws1_modGain.gain.value = 0;
+            lfo1_ws2_modGain.gain.value = 0;
+            lfo1.connect(lfo1_ws1_modGain);
+            lfo1.connect(lfo1_ws2_modGain);
+            lfo1_ws1_modGain.connect(shaper1InputGain.gain);
+            lfo1_ws2_modGain.connect(shaper2InputGain.gain);
+
             lfo1.start();
             lfo2.start();
 
             synthGraphRef.current = {
                 osc1Gain, osc2Gain, shaper1, shaper1InputGain, shaper2, shaper2InputGain,
-                mixer, fm1Gain, fm2Gain, filterNode, vca, lfo1, lfo2, modGains
+                mixer, fm1Gain, fm2Gain, preFilterGain, filterNode1, filterNode2, vca, lfo1, lfo2, modGains,
+                lfo1_ws1_modGain, lfo1_ws2_modGain,
+                combDelay, combFeedbackGain, combInGain, combOutGain,
+                formantInGain, formantFilters, formantOutGain
             };
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -362,8 +622,7 @@ export const useAudioEngine = () => {
 
         const stopTime = effectiveTime + decayDuration;
         if (decayDuration > (RAMP_TIME + releaseTime)) {
-            envelope.setValueAtTime(params.velocity, stopTime - releaseTime);
-            envelope.linearRampToValueAtTime(0, stopTime);
+            envelope.setTargetAtTime(0, stopTime - releaseTime, releaseTime / 4);
         } else {
             envelope.linearRampToValueAtTime(0, stopTime);
         }
@@ -387,7 +646,7 @@ export const useAudioEngine = () => {
     }, []);
 
     const playSynthNote = useCallback((relativeDetune: number, scheduleTime: number) => {
-        const { audioContext: ctx, synth: currentSynth, synthModMatrix: currentModMatrix } = stateRef.current;
+        const { audioContext: ctx, synth: currentSynth, synthModMatrix: currentModMatrix, bpm, isModMatrixMuted } = stateRef.current;
         const synthGraph = synthGraphRef.current;
         if (!ctx || !synthGraph) return;
     
@@ -395,128 +654,162 @@ export const useAudioEngine = () => {
         const effectiveTime = scheduleTime === 0 ? now : scheduleTime;
         const { osc1, osc2, oscMix, filter, filterEnv, ampEnv, globalGateTime } = currentSynth;
         
-        // --- Monophonic Voice Stealing: Gracefully stop the previous note ---
+        const effectiveModMatrix = isModMatrixMuted ? {} : currentModMatrix;
+
+        // --- BUG FIX: Reset ALL modulation gains before applying new settings ---
+        Object.values(synthGraph.modGains).forEach(gainNode => {
+            gainNode.gain.cancelScheduledValues(now);
+            gainNode.gain.setValueAtTime(0, now);
+        });
+        synthGraph.lfo1_ws1_modGain.gain.cancelScheduledValues(now);
+        synthGraph.lfo1_ws1_modGain.gain.setValueAtTime(0, now);
+        synthGraph.lfo1_ws2_modGain.gain.cancelScheduledValues(now);
+        synthGraph.lfo1_ws2_modGain.gain.setValueAtTime(0, now);
+
+        // --- Legato / Note-Retriggering Click Prevention ---
+        const LEGATO_RAMP_DOWN_TIME = 0.005;
+        const attackStartTime = Math.max(effectiveTime, now + LEGATO_RAMP_DOWN_TIME);
+        synthGraph.vca.gain.cancelScheduledValues(now);
+        synthGraph.vca.gain.setValueAtTime(synthGraph.vca.gain.value, now);
+        synthGraph.vca.gain.linearRampToValueAtTime(0, now + LEGATO_RAMP_DOWN_TIME);
+        
         if (activeNoteSourcesRef.current) {
             const oldSources = activeNoteSourcesRef.current;
-            const releaseTime = now + RAMP_TIME;
-
-            // Ramp down VCA gain quickly to prevent clicks
-            synthGraph.vca.gain.cancelScheduledValues(now);
-            synthGraph.vca.gain.setValueAtTime(synthGraph.vca.gain.value, now); // Pin current value
-            synthGraph.vca.gain.linearRampToValueAtTime(0, releaseTime);
-            
-            // Stop old oscillators
-            oldSources.oscNode1.stop(releaseTime);
-            oldSources.oscNode2.stop(releaseTime);
-            
-            // Disconnect dynamic LFO pitch modulation
-            synthGraph.modGains['lfo1_osc1Pitch'].disconnect();
-            synthGraph.modGains['lfo1_osc2Pitch'].disconnect();
-            synthGraph.modGains['lfo2_osc1Pitch'].disconnect();
-            synthGraph.modGains['lfo2_osc2Pitch'].disconnect();
+            const releaseTime = now + (filterEnv.decay) + 0.1; // Use decay as release time
+            oldSources.oscSource1.stop(releaseTime);
+            oldSources.oscSource2.stop(releaseTime);
+    
+            if (oldSources.oscSource1 instanceof OscillatorNode) {
+                synthGraph.modGains['lfo1_osc1Pitch']?.disconnect();
+                synthGraph.modGains['lfo2_osc1Pitch']?.disconnect();
+            }
+            if (oldSources.oscSource2 instanceof OscillatorNode) {
+                synthGraph.modGains['lfo1_osc2Pitch']?.disconnect();
+                synthGraph.modGains['lfo2_osc2Pitch']?.disconnect();
+            }
         }
 
-        // --- Helper functions ---
-        const createPeriodicWave = (type: CustomOscillatorType): PeriodicWave => {
-            const n = 4096;
-            const real = new Float32Array(n);
-            const imag = new Float32Array(n);
-            switch (type) {
-                case 'supersaw':
-                    for (let i = 1; i < n; i++) imag[i] = (Math.random() * 2 - 1) / i;
-                    break;
-                case 'pwm':
-                    for (let i = 1; i < n; i++) real[i] = Math.sin(Math.PI * i * 0.2) / (i * Math.PI);
-                    break;
-            }
-            return ctx.createPeriodicWave(real, imag, { disableNormalization: true });
-        };
-        const makeDistortionCurve = (type: WaveShaperType, amount: number): Float32Array => {
-            const k = amount * 100;
-            const n_samples = 44100;
-            const curve = new Float32Array(n_samples);
-            let i = 0;
-            let x;
-            switch(type) {
-                case 'hard':
-                    for ( ; i < n_samples; ++i ) {
-                        x = i * 2 / n_samples - 1;
-                        curve[i] = Math.max(-1, Math.min(1, x * (1 + k)));
-                    }
-                    break;
-                case 'soft':
-                     for ( ; i < n_samples; ++i ) {
-                        x = i * 2 / n_samples - 1;
-                        curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
-                    }
-                    break;
-                case 'bitcrush':
-                    const bits = Math.round(16 * (1 - amount));
-                    const steps = Math.pow(2, Math.max(1, bits));
-                    for ( ; i < n_samples; ++i ) {
-                        x = i * 2 / n_samples - 1;
-                        curve[i] = Math.round(x * steps) / steps;
-                    }
-                    break;
-            }
-            return curve;
-        };
+        const oscSource1 = createOscillatorSource(osc1.type, ctx);
+        const oscSource2 = createOscillatorSource(osc2.type, ctx);
+        const oscNode1 = oscSource1 instanceof OscillatorNode ? oscSource1 : null;
+        const oscNode2 = oscSource2 instanceof OscillatorNode ? oscSource2 : null;
 
-        // --- Create NEW Oscillator Sources for the new note ---
-        const oscNode1 = ctx.createOscillator();
-        const oscNode2 = ctx.createOscillator();
+        oscSource1.connect(synthGraph.shaper1InputGain);
+        oscSource2.connect(synthGraph.shaper2InputGain);
 
-        // Connect new sources to the persistent graph
-        oscNode1.connect(synthGraph.shaper1InputGain);
-        oscNode2.connect(synthGraph.shaper2InputGain);
-        oscNode2.connect(synthGraph.fm1Gain);
-        synthGraph.fm1Gain.connect(oscNode1.frequency);
-        oscNode1.connect(synthGraph.fm2Gain);
-        synthGraph.fm2Gain.connect(oscNode2.frequency);
+        if (oscNode2) {
+            oscNode2.connect(synthGraph.fm1Gain);
+            if (oscNode1) synthGraph.fm1Gain.connect(oscNode1.frequency);
+        }
+        if (oscNode1) {
+            oscNode1.connect(synthGraph.fm2Gain);
+            if (oscNode2) synthGraph.fm2Gain.connect(oscNode2.frequency);
+        }
         
-        // --- Set ALL Parameters on the Persistent Graph and New Sources ---
         const absoluteDetune = relativeDetune + 6000;
         const baseFreq = 440 * Math.pow(2, (absoluteDetune - 6900) / 1200);
         
-        if (['sine', 'square', 'sawtooth', 'triangle'].includes(osc1.type)) { oscNode1.type = osc1.type as OscillatorType; } 
-        else { oscNode1.setPeriodicWave(createPeriodicWave(osc1.type as CustomOscillatorType)); }
-        oscNode1.frequency.setValueAtTime(baseFreq * Math.pow(2, osc1.octave), effectiveTime);
-        oscNode1.detune.setValueAtTime(osc1.detune, effectiveTime);
-        
-        if (['sine', 'square', 'sawtooth', 'triangle'].includes(osc2.type)) { oscNode2.type = osc2.type as OscillatorType; }
-        else { oscNode2.setPeriodicWave(createPeriodicWave(osc2.type as CustomOscillatorType)); }
-        oscNode2.frequency.setValueAtTime(baseFreq * Math.pow(2, osc2.octave), effectiveTime);
-        oscNode2.detune.setValueAtTime(osc2.detune, effectiveTime);
+        if (oscNode1) {
+            oscNode1.frequency.setValueAtTime(baseFreq * Math.pow(2, osc1.octave), effectiveTime);
+            oscNode1.detune.setValueAtTime(osc1.detune, effectiveTime);
+            if(osc1.sync && oscNode1 && oscNode2) {
+                oscNode1.connect(oscNode2.frequency);
+            }
+        }
+        if (oscNode2) {
+            oscNode2.frequency.setValueAtTime(baseFreq * Math.pow(2, osc2.octave), effectiveTime);
+            oscNode2.detune.setValueAtTime(osc2.detune, effectiveTime);
+        }
         
         synthGraph.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
         synthGraph.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
-        synthGraph.fm1Gain.gain.setValueAtTime(osc2.fmDepth, effectiveTime);
-        synthGraph.fm2Gain.gain.setValueAtTime(osc1.fmDepth, effectiveTime);
+        synthGraph.fm1Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc2.fmDepth : 0, effectiveTime);
+        synthGraph.fm2Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc1.fmDepth : 0, effectiveTime);
         
         synthGraph.shaper1.curve = makeDistortionCurve(osc1.waveshapeType, osc1.waveshapeAmount);
         synthGraph.shaper1.oversample = '4x';
         synthGraph.shaper2.curve = makeDistortionCurve(osc2.waveshapeType, osc2.waveshapeAmount);
         synthGraph.shaper2.oversample = '4x';
     
-        synthGraph.filterNode.type = filter.type;
-        synthGraph.filterNode.frequency.setValueAtTime(filter.cutoff, effectiveTime);
-        synthGraph.filterNode.Q.setValueAtTime(filter.resonance, effectiveTime);
+        // FIX: Consistently access properties from synthGraph to avoid type inference issues.
+        // The previous implementation used destructuring which caused TS to infer 'unknown' for some nodes.
+        // --- Filter Setup ---
+        synthGraph.preFilterGain.gain.setValueAtTime(0, effectiveTime);
+        synthGraph.combInGain.gain.setValueAtTime(0, effectiveTime);
+        synthGraph.formantInGain.gain.setValueAtTime(0, effectiveTime);
 
-        synthGraph.lfo1.type = currentSynth.lfo1.type as OscillatorType;
-        synthGraph.lfo1.frequency.setValueAtTime(currentSynth.lfo1.rate, effectiveTime);
-        synthGraph.lfo2.type = currentSynth.lfo2.type as OscillatorType;
-        synthGraph.lfo2.frequency.setValueAtTime(currentSynth.lfo2.rate, effectiveTime);
+        const isStandard = filter.type.includes('pass') || filter.type.includes('Peak');
+        const isComb = filter.type.includes('Comb');
+        const isFormant = filter.type.includes('Formant');
 
-        // --- Modulation Matrix ---
-        // FIX: Add type assertion to fix "Property 'gain' does not exist on type 'unknown'" error.
-        // This can happen if the TypeScript version or configuration doesn't correctly infer the type from Object.values.
-        Object.values(synthGraph.modGains).forEach(g => (g as GainNode).gain.setValueAtTime(0, effectiveTime));
+        if (isStandard) {
+            synthGraph.preFilterGain.gain.setValueAtTime(1, effectiveTime);
+            const is24dB = filter.type.includes('24dB');
+            const nativeFilterType = filter.type.includes('Peak') ? 'peaking' : (filter.type.toLowerCase().replace(' 12db', '').replace(' 24db', '')) as BiquadFilterType;
+            
+            synthGraph.filterNode1.type = nativeFilterType;
+            synthGraph.filterNode2.type = is24dB ? nativeFilterType : 'allpass';
+
+            synthGraph.filterNode1.frequency.setValueAtTime(filter.cutoff, effectiveTime);
+            synthGraph.filterNode1.Q.setValueAtTime(filter.resonance, effectiveTime);
+            if (is24dB) {
+                synthGraph.filterNode2.frequency.setValueAtTime(filter.cutoff, effectiveTime);
+                const safeResonance = filter.resonance > 20 ? 20 + (filter.resonance - 20) * 0.5 : filter.resonance;
+                synthGraph.filterNode2.Q.setValueAtTime(safeResonance, effectiveTime);
+            } else {
+                synthGraph.filterNode2.frequency.setValueAtTime(20000, effectiveTime);
+                synthGraph.filterNode2.Q.setValueAtTime(0, effectiveTime);
+            }
+        } else if (isComb) {
+            synthGraph.combInGain.gain.setValueAtTime(1, effectiveTime);
+            const delayTime = Math.max(0.001, 1 / filter.cutoff);
+            synthGraph.combDelay.delayTime.setValueAtTime(delayTime, effectiveTime);
+            const feedback = Math.min(0.95, filter.resonance / 31);
+            synthGraph.combFeedbackGain.gain.setValueAtTime(filter.type === 'Comb+' ? feedback : -feedback, effectiveTime);
+        } else if (isFormant) {
+            synthGraph.formantInGain.gain.setValueAtTime(1, effectiveTime);
+            const VOWELS: Record<string, number[]> = { 'A': [650, 1100, 2800], 'E': [450, 1700, 2600], 'I': [300, 2200, 2900], 'O': [400, 800, 2700], 'U': [350, 600, 2700] };
+            const vowelNames = Object.keys(VOWELS);
+            const morph = Math.max(0, Math.min(1, filter.cutoff / 10000)) * (vowelNames.length - 1);
+            const idx1 = Math.floor(morph);
+            const idx2 = Math.min(vowelNames.length - 1, idx1 + 1);
+            const frac = morph - idx1;
+            
+            synthGraph.formantFilters.forEach((f, i) => {
+                const freq1 = VOWELS[vowelNames[idx1]][i];
+                const freq2 = VOWELS[vowelNames[idx2]][i];
+                const freq = freq1 + (freq2 - freq1) * frac;
+                f.type = 'bandpass';
+                f.frequency.setValueAtTime(freq, effectiveTime);
+                f.Q.setValueAtTime(filter.resonance, effectiveTime);
+            });
+        }
+        synthGraph.combOutGain.gain.setValueAtTime(isComb ? 1 : 0, effectiveTime);
+        synthGraph.formantOutGain.gain.setValueAtTime(isFormant ? 1 : 0, effectiveTime);
+
+
+        synthGraph.lfo1.setPeriodicWave(createLfoWave(currentSynth.lfo1.type, ctx));
+        const lfo1SyncRateData = LFO_SYNC_RATES[currentSynth.lfo1.rate];
+        const lfo1Rate = currentSynth.lfo1.rateMode === 'sync' && lfo1SyncRateData
+            ? (bpm / 60) / lfo1SyncRateData.beats
+            : currentSynth.lfo1.rate;
+        synthGraph.lfo1.frequency.setValueAtTime(lfo1Rate, effectiveTime);
         
-        Object.keys(currentModMatrix).forEach(source => {
-            const destinations = currentModMatrix[source];
+        synthGraph.lfo2.setPeriodicWave(createLfoWave(currentSynth.lfo2.type, ctx));
+        const lfo2SyncRateData = LFO_SYNC_RATES[currentSynth.lfo2.rate];
+        const lfo2Rate = currentSynth.lfo2.rateMode === 'sync' && lfo2SyncRateData
+            ? (bpm / 60) / lfo2SyncRateData.beats
+            : currentSynth.lfo2.rate;
+        synthGraph.lfo2.frequency.setValueAtTime(lfo2Rate, effectiveTime);
+        
+        Object.keys(effectiveModMatrix).forEach(source => {
+            if (source === 'filterEnv') return;
+            const destinations = effectiveModMatrix[source];
             if (!destinations) return;
             Object.keys(destinations).forEach(dest => {
-                if (!destinations[dest] || source === 'filterEnv') return;
+                const value = destinations[dest];
+                if (!value) return;
+                if (source === 'lfo1' && (dest === 'osc1Wave' || dest === 'osc2Wave')) return;
 
                 const gainNodeKey = `${source}_${dest}`;
                 const gainNode = synthGraph.modGains[gainNodeKey];
@@ -530,79 +823,61 @@ export const useAudioEngine = () => {
                     case 'filterCutoff': modAmount = 5000; break;
                     case 'filterQ': modAmount = 15; break;
                 }
-                gainNode.gain.setValueAtTime(modAmount, effectiveTime);
+                gainNode.gain.setValueAtTime(modAmount * value, effectiveTime);
 
-                if (dest === 'osc1Pitch') gainNode.connect(oscNode1.detune);
-                if (dest === 'osc2Pitch') gainNode.connect(oscNode2.detune);
+                if (dest === 'osc1Pitch' && oscNode1) gainNode.connect(oscNode1.detune);
+                if (dest === 'osc2Pitch' && oscNode2) gainNode.connect(oscNode2.detune);
             });
         });
+
+        synthGraph.lfo1_ws1_modGain.gain.setValueAtTime(currentSynth.osc1.wsLfoAmount || 0, effectiveTime);
+        synthGraph.lfo1_ws2_modGain.gain.setValueAtTime(currentSynth.osc2.wsLfoAmount || 0, effectiveTime);
     
-        // --- Envelopes & Scheduling ---
-        const gateEndTime = effectiveTime + globalGateTime;
-        const finalStopTime = gateEndTime + ampEnv.release;
+        const gateEndTime = attackStartTime + globalGateTime;
+        const timeConstant = (duration: number) => Math.max(0.001, duration / 5);
 
-        // Amp Envelope (ADSR)
-        const amp = synthGraph.vca.gain;
-        amp.cancelScheduledValues(effectiveTime);
-        amp.setValueAtTime(0, effectiveTime);
-        amp.linearRampToValueAtTime(1, effectiveTime + ampEnv.attack);
-        amp.linearRampToValueAtTime(ampEnv.sustain, effectiveTime + ampEnv.attack + ampEnv.decay);
-        amp.setValueAtTime(ampEnv.sustain, gateEndTime);
-        amp.linearRampToValueAtTime(0, finalStopTime);
-    
-        // Filter Envelope (ADSR)
-        const filterFreq = synthGraph.filterNode.frequency;
-        const currentCutoff = filter.cutoff;
-        filterFreq.cancelScheduledValues(effectiveTime);
-        filterFreq.setValueAtTime(currentCutoff, effectiveTime);
-        const peakFreq = currentCutoff + filter.envAmount;
-        filterFreq.linearRampToValueAtTime(peakFreq, effectiveTime + filterEnv.attack);
-        filterFreq.linearRampToValueAtTime(currentCutoff + (filter.envAmount * filterEnv.sustain), effectiveTime + filterEnv.attack + filterEnv.decay);
-        filterFreq.setValueAtTime(currentCutoff + (filter.envAmount * filterEnv.sustain), gateEndTime);
-        filterFreq.linearRampToValueAtTime(currentCutoff, gateEndTime + filterEnv.release);
+        // --- Amp Envelope Fix ---
+        const ampAttackTime = 0.002; // Hardcoded fast attack for punch
+        synthGraph.vca.gain.cancelScheduledValues(attackStartTime); // Ensure a clean slate
+        synthGraph.vca.gain.setValueAtTime(0, attackStartTime);
+        // Schedule the attack
+        synthGraph.vca.gain.setTargetAtTime(1, attackStartTime, timeConstant(ampAttackTime));
+        // Schedule the decay to start *after* the attack has completed
+        synthGraph.vca.gain.setTargetAtTime(0, attackStartTime + ampAttackTime, timeConstant(ampEnv.decay));
 
-        // Modulate with Filter Env
-        Object.keys(currentModMatrix['filterEnv'] || {}).forEach(dest => {
-            if (!currentModMatrix['filterEnv'][dest]) return;
-            
-            // FIX: The original logic for filter envelope modulation was incomplete.
-            // It only handled pitch destinations, ignoring others defined in presets.
-            // This has been expanded to correctly identify all possible target AudioParams
-            // and apply the envelope, preventing silent failures and potential errors.
-            const targetParamData = ((): { param: AudioParam | null, baseValue: number, modAmount: number } => {
-                switch (dest) {
-                    case 'osc1Pitch': return { param: oscNode1.detune, baseValue: osc1.detune, modAmount: 2400 };
-                    case 'osc2Pitch': return { param: oscNode2.detune, baseValue: osc2.detune, modAmount: 2400 };
-                    case 'osc1FM': return { param: synthGraph.fm2Gain.gain, baseValue: osc1.fmDepth, modAmount: 2500 };
-                    case 'osc2FM': return { param: synthGraph.fm1Gain.gain, baseValue: osc2.fmDepth, modAmount: 2500 };
-                    case 'osc1Wave': return { param: synthGraph.shaper1InputGain.gain, baseValue: 0, modAmount: 1 };
-                    case 'osc2Wave': return { param: synthGraph.shaper2InputGain.gain, baseValue: 0, modAmount: 1 };
-                    // Filter cutoff/Q modulation by filter env is already handled by filter.envAmount
-                    default: return { param: null, baseValue: 0, modAmount: 0 };
-                }
-            })();
 
-            const { param: targetParam, baseValue, modAmount } = targetParamData;
-            
-            if (targetParam) {
-                targetParam.cancelScheduledValues(effectiveTime);
-                // Set the starting base value
-                targetParam.setValueAtTime(baseValue, effectiveTime);
-                // Apply ADSR envelope shape, adding modulation on top of the base value
-                targetParam.linearRampToValueAtTime(baseValue + modAmount, effectiveTime + filterEnv.attack);
-                targetParam.linearRampToValueAtTime(baseValue + (modAmount * filterEnv.sustain), effectiveTime + filterEnv.attack + filterEnv.decay);
-                targetParam.setValueAtTime(baseValue + (modAmount * filterEnv.sustain), gateEndTime);
-                targetParam.linearRampToValueAtTime(baseValue, gateEndTime + filterEnv.release);
+        // Filter Env (ADS, with D also being Release time)
+        const applyFilterEnv = (filterParam: AudioParam, baseFreq: number) => {
+            filterParam.cancelScheduledValues(attackStartTime);
+            filterParam.setValueAtTime(baseFreq, attackStartTime);
+            const peakFreq = baseFreq + filter.envAmount;
+            // Exponential attack
+            filterParam.setTargetAtTime(peakFreq, attackStartTime, timeConstant(filterEnv.attack));
+            const sustainFreq = baseFreq + (filter.envAmount * filterEnv.sustain);
+            // Decay to sustain level
+            filterParam.setTargetAtTime(sustainFreq, attackStartTime + filterEnv.attack, timeConstant(filterEnv.decay));
+            // Release (at gate end)
+            filterParam.cancelScheduledValues(gateEndTime);
+            // BUG FIX: Removed erroneous `setValueAtTime` which caused a jump in the filter cutoff on release.
+            // The `setTargetAtTime` below now correctly starts the release ramp from the value the
+            // parameter has at `gateEndTime`.
+            filterParam.setTargetAtTime(baseFreq, gateEndTime, timeConstant(filterEnv.decay)); // Release time = decay time
+        };
+
+        if (isStandard) {
+            applyFilterEnv(synthGraph.filterNode1.frequency, filter.cutoff);
+            if(filter.type.includes('24dB')) {
+                applyFilterEnv(synthGraph.filterNode2.frequency, filter.cutoff);
             }
-        });
+        }
     
-        // --- Start/Stop Oscillators ---
-        oscNode1.start(effectiveTime);
-        oscNode2.start(effectiveTime);
-        oscNode1.stop(finalStopTime);
-        oscNode2.stop(finalStopTime);
+        const finalStopTime = gateEndTime + filterEnv.decay * 5; // Ensure note stops after release
+        oscSource1.start(effectiveTime);
+        oscSource2.start(effectiveTime);
+        oscSource1.stop(finalStopTime);
+        oscSource2.stop(finalStopTime);
         
-        activeNoteSourcesRef.current = { oscNode1, oscNode2 };
+        activeNoteSourcesRef.current = { oscSource1, oscSource2 };
     }, []);
 
     const loadSampleFromBlob = useCallback(async (blob: Blob, sampleId: number, name?: string) => {
