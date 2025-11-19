@@ -1,3 +1,4 @@
+
 import React, { createContext, useReducer, Dispatch } from 'react';
 import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData, Synth, SynthPreset, ModMatrix, ModPatch, MasterCompressorSnapshot } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK, OSC_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, LFO_WAVEFORMS, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES, LFO_SYNC_TRIGGERS } from '../constants';
@@ -467,7 +468,10 @@ const initialState: AppState = {
         volume: 1,
         pitch: 0,
         start: 0,
+        end: 1, // NEW: Default end point
         decay: 1,
+        loop: false, // NEW: Default loop state
+        playbackMode: 'Forward', // NEW: Default playback mode
         lpFreq: 20000,
         hpFreq: 20,
     })),

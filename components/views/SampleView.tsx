@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Action, ActionType, PlaybackParams, Sample } from '../../types';
 import Fader from '../Fader';
@@ -180,7 +181,7 @@ const SampleView: React.FC<SampleViewProps> = ({
         }
     };
 
-    const handleParamChange = useCallback((param: 'pitch' | 'start' | 'volume' | 'decay' | 'lpFreq' | 'hpFreq', value: number) => {
+    const handleParamChange = useCallback((param: 'pitch' | 'start' | 'end' | 'volume' | 'decay' | 'loop' | 'playbackMode' | 'lpFreq' | 'hpFreq', value: number | boolean | string) => {
         dispatch({
             type: ActionType.UPDATE_SAMPLE_PARAM,
             payload: { sampleId: activeSampleId, param, value },
@@ -315,14 +316,34 @@ const SampleView: React.FC<SampleViewProps> = ({
                     </div>
                 ) : (
                     <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                            <Fader label="Pitch" value={activeSample.pitch} onChange={(val) => handleParamChange('pitch', val)} min={-24} max={24} step={0.01} defaultValue={0} />
+                            <Fader label="Vol" value={activeSample.volume} onChange={(val) => handleParamChange('volume', val)} min={0} max={1} step={0.01} defaultValue={1} />
+                            <Fader label="Start" value={activeSample.start} onChange={(val) => handleParamChange('start', val)} min={0} max={1} step={0.001} defaultValue={0} />
+                            <Fader label="End" value={activeSample.end} onChange={(val) => handleParamChange('end', val)} min={0} max={1} step={0.001} defaultValue={1} />
+                            <Fader label="Decay" value={activeSample.decay} onChange={(val) => handleParamChange('decay', val)} min={0.01} max={1} step={0.001} defaultValue={1} />
+                            <div className="flex items-center justify-between space-x-1">
+                                <button 
+                                    onClick={() => handleParamChange('loop', !activeSample.loop)} 
+                                    className={`flex-grow h-full rounded text-xs font-bold ${activeSample.loop ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+                                >
+                                    Loop
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        const modes = ['Forward', 'Reverse', 'PingPong'];
+                                        const currentIndex = modes.indexOf(activeSample.playbackMode || 'Forward');
+                                        const nextIndex = (currentIndex + 1) % modes.length;
+                                        handleParamChange('playbackMode', modes[nextIndex]);
+                                    }}
+                                    className="flex-grow h-full bg-emerald-200 text-emerald-800 rounded text-[10px] font-bold"
+                                >
+                                    {activeSample.playbackMode || 'Forward'}
+                                </button>
+                            </div>
+                        </div>
                          <Fader label="LP" value={logToLinear(activeSample.lpFreq)} onChange={(v) => handleParamChange('lpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={1} displayValue={activeSample.lpFreq} displayPrecision={0} />
                          <Fader label="HP" value={logToLinear(activeSample.hpFreq)} onChange={(v) => handleParamChange('hpFreq', linearToLog(v))} min={0} max={1} step={0.001} defaultValue={0} displayValue={activeSample.hpFreq} displayPrecision={0} />
-                         <div className="grid grid-cols-2 gap-x-2 gap-y-1 pt-2">
-                            <Fader label="Pitch" value={activeSample.pitch} onChange={(val) => handleParamChange('pitch', val)} min={-24} max={24} step={0.01} defaultValue={0} />
-                            <Fader label="Start" value={activeSample.start} onChange={(val) => handleParamChange('start', val)} min={0} max={1} step={0.001} defaultValue={0} />
-                            <Fader label="Decay" value={activeSample.decay} onChange={(val) => handleParamChange('decay', val)} min={0.01} max={1} step={0.001} defaultValue={1} />
-                            <Fader label="Vol" value={activeSample.volume} onChange={(val) => handleParamChange('volume', val)} min={0} max={1} step={0.01} defaultValue={1} />
-                        </div>
                     </div>
                 )}
             </div>

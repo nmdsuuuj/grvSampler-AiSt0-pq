@@ -1,3 +1,4 @@
+
 export interface Groove {
     id: number;
     name: string;
@@ -11,7 +12,10 @@ export interface Sample {
     volume: number; // Base volume
     pitch: number;  // Base pitch in semitones
     start: number; // 0-1
+    end: number; // 0-1, NEW
     decay: number; // 0-1
+    loop: boolean; // NEW
+    playbackMode: 'Forward' | 'Reverse' | 'PingPong'; // NEW
     lpFreq: number; // Low-pass filter frequency
     hpFreq: number; // High-pass filter frequency
 }
@@ -23,7 +27,7 @@ export interface Step {
 }
 
 // Parameters that can be locked per step for a given sample
-export type LockableParam = 'detune' | 'velocity' | 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq';
+export type LockableParam = 'detune' | 'velocity' | 'volume' | 'pitch' | 'start' | 'end' | 'decay' | 'lpFreq' | 'hpFreq';
 
 export interface Pattern {
     id: number;
@@ -62,6 +66,9 @@ export interface PlaybackParams {
     volume: number;
     pitch: number;
     start: number;
+    end: number;
+    loop: boolean;
+    playbackMode: 'Forward' | 'Reverse' | 'PingPong';
     decay: number;
     lpFreq: number;
     hpFreq: number;
@@ -297,7 +304,7 @@ export type Action =
     | { type: ActionType.SET_ACTIVE_SAMPLE_BANK; payload: number }
     | { type: ActionType.SET_ACTIVE_GROOVE; payload: { bankIndex: number; grooveId: number } }
     | { type: ActionType.SET_GROOVE_DEPTH; payload: { bankIndex: number; value: number } }
-    | { type: ActionType.UPDATE_SAMPLE_PARAM; payload: { sampleId: number; param: 'volume' | 'pitch' | 'start' | 'decay' | 'lpFreq' | 'hpFreq'; value: number } }
+    | { type: ActionType.UPDATE_SAMPLE_PARAM; payload: { sampleId: number; param: 'volume' | 'pitch' | 'start' | 'end' | 'decay' | 'loop' | 'playbackMode' | 'lpFreq' | 'hpFreq'; value: number | boolean | string } }
     | { type: ActionType.UPDATE_SAMPLE_NAME; payload: { sampleId: number; name: string } }
     | { type: ActionType.SET_SAMPLES; payload: Sample[] }
     | { type: ActionType.TOGGLE_STEP; payload: { patternId: number; sampleId: number; step: number } }

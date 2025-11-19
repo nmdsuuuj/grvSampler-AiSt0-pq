@@ -1,3 +1,4 @@
+
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, Sample, PlaybackParams, BiquadFilterType } from '../types';
@@ -663,8 +664,55 @@ export const useAudioEngine = () => {
 
         const effectiveTime = scheduleTime === 0 ? ctx.currentTime : scheduleTime;
         
+        const baseParams: PlaybackParams = {
+            detune: 0,
+            velocity: 1,
+            volume: sample.volume,
+            pitch: sample.pitch,
+            start: sample.start,
+            end: sample.end || 1,
+            decay: sample.decay,
+            loop: sample.loop || false,
+            playbackMode: sample.playbackMode || 'Forward',
+            lpFreq: sample.lpFreq,
+            hpFreq: sample.hpFreq
+        };
+
+        const params = { ...baseParams, ...playbackParams };
+
+        // Prepare Buffer
+        let bufferToPlay = sample.buffer;
+
+        // Handling PingPong (create temporary buffer, heavy operation but necessary without AudioWorklet)
+        if (params.playbackMode === 'PingPong') {
+            // Create a new buffer that is [Section] + [Reversed Section]
+            const startSample = Math.floor(sample.buffer.length * params.start);
+            const endSample = Math.floor(sample.buffer.length * params.end);
+            if (endSample > startSample) {
+                const segmentLength = endSample - startSample;
+                const newLength = segmentLength * 2;
+                const newBuffer = ctx.createBuffer(sample.buffer.numberOfChannels, newLength, sample.buffer.sampleRate);
+
+                for (let ch = 0; ch < sample.buffer.numberOfChannels; ch++) {
+                    const channelData = sample.buffer.getChannelData(ch);
+                    const newChannelData = newBuffer.getChannelData(ch);
+                    
+                    // Copy forward
+                    const segment = channelData.subarray(startSample, endSample);
+                    newChannelData.set(segment, 0);
+                    
+                    // Copy backward
+                    // We must create a copy to reverse because .reverse() is in-place
+                    const reversedSegment = new Float32Array(segment);
+                    reversedSegment.reverse();
+                    newChannelData.set(reversedSegment, segmentLength);
+                }
+                bufferToPlay = newBuffer;
+            }
+        }
+
         const source = ctx.createBufferSource();
-        source.buffer = sample.buffer;
+        source.buffer = bufferToPlay;
         
         const envelopeGainNode = ctx.createGain();
 
@@ -674,19 +722,6 @@ export const useAudioEngine = () => {
         const sampleGainNode = sampleGainsRef.current[sampleId];
         envelopeGainNode.connect(lpNode);
         
-        const baseParams: PlaybackParams = {
-            detune: 0,
-            velocity: 1,
-            volume: sample.volume,
-            pitch: sample.pitch,
-            start: sample.start,
-            decay: sample.decay,
-            lpFreq: sample.lpFreq,
-            hpFreq: sample.hpFreq
-        };
-
-        const params = { ...baseParams, ...playbackParams };
-
         sampleGainNode.gain.setValueAtTime(params.volume, effectiveTime);
         lpNode.frequency.setValueAtTime(params.lpFreq, effectiveTime);
         hpNode.frequency.setValueAtTime(params.hpFreq, effectiveTime);
@@ -695,11 +730,54 @@ export const useAudioEngine = () => {
         source.detune.setValueAtTime(totalDetuneCents, effectiveTime);
         
         const playbackRate = Math.pow(2, totalDetuneCents / 1200);
+        const effectiveRate = params.playbackMode === 'Reverse' ? -playbackRate : playbackRate;
         
-        const startOffset = sample.buffer.duration * params.start;
-        const remainingBufferDuration = sample.buffer.duration - startOffset;
-        const actualPlaybackDuration = remainingBufferDuration / playbackRate;
-        const decayDuration = actualPlaybackDuration * params.decay;
+        // Set Playback Rate (negative for reverse)
+        source.playbackRate.setValueAtTime(effectiveRate, effectiveTime);
+        
+        // Calculate Duration and Loop Points
+        const bufferDuration = bufferToPlay.duration;
+        let startOffset = 0;
+        let playDuration = 0;
+
+        if (params.playbackMode === 'PingPong') {
+             // For PingPong, the buffer is already constructed to be exactly the loop length (Forward + Back)
+             // So we start at 0 and loop the whole thing
+             startOffset = 0;
+             playDuration = bufferDuration / Math.abs(effectiveRate); // The whole pingpong buffer
+             
+             if (params.loop) {
+                source.loop = true;
+                source.loopStart = 0;
+                source.loopEnd = bufferDuration;
+             }
+        } else {
+             // Standard Forward / Reverse
+             const startPoint = Math.min(params.start, params.end) * bufferDuration;
+             const endPoint = Math.max(params.start, params.end) * bufferDuration;
+             const regionDuration = endPoint - startPoint;
+             
+             if (params.playbackMode === 'Reverse') {
+                 startOffset = endPoint; // Start from end for reverse
+             } else {
+                 startOffset = startPoint; // Start from start for forward
+             }
+
+             playDuration = regionDuration / Math.abs(effectiveRate);
+
+             if (params.loop) {
+                 source.loop = true;
+                 source.loopStart = startPoint;
+                 source.loopEnd = endPoint;
+             }
+        }
+        
+        // Apply Envelope
+        // If looping, 'decay' acts as a gate/release time or total duration?
+        // In this groovebox context, let's make 'decay' strictly control the amp envelope duration.
+        // If loop is ON, sound continues until decay runs out.
+        
+        const decayDuration = bufferDuration * params.decay / Math.abs(playbackRate); // Use original rate for time scaling
         
         const envelope = envelopeGainNode.gain;
         const releaseTime = 0.008;

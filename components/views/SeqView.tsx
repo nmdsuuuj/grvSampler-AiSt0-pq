@@ -441,12 +441,16 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                                     ? activePattern.steps[sampleId]?.[selectedStep]?.[p.value]
                                     : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedStep];
                                 
-                                let displayValue;
+                                let displayValue: number;
                                 if (lockedValue !== null && lockedValue !== undefined) {
                                     displayValue = lockedValue;
                                 } else {
-                                    if (p.value === 'velocity') displayValue = 1; // Default velocity
-                                    else displayValue = activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>];
+                                    if (p.value === 'velocity') {
+                                        displayValue = 1; // Default velocity
+                                    } else {
+                                        // Cast to number as FADER_PARAMS only includes numeric properties from Sample
+                                        displayValue = activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>] as number;
+                                    }
                                 }
                                 
                                 return (
@@ -458,7 +462,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                                         min={p.min} 
                                         max={p.max} 
                                         step={p.step} 
-                                        defaultValue={p.value === 'velocity' ? 1 : activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>]}
+                                        defaultValue={p.value === 'velocity' ? 1 : activeSample[p.value as keyof Omit<Sample, 'id'|'name'|'buffer'>] as number}
                                         displayValue={displayValue}
                                         displayPrecision={p.value.includes('Freq') ? 0 : 2}
                                     />

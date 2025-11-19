@@ -1,3 +1,4 @@
+
 import Dexie, { Table } from 'dexie';
 import { AppState, Sample, Step, Pattern } from './types';
 
@@ -15,7 +16,10 @@ export interface StorableSample {
     volume: number;
     pitch: number;
     start: number;
+    end: number; // NEW
     decay: number;
+    loop: boolean; // NEW
+    playbackMode: 'Forward' | 'Reverse' | 'PingPong'; // NEW
     lpFreq: number;
     hpFreq: number;
 }
@@ -77,6 +81,14 @@ dbInstance.version(2).stores({
 
 // Version 3 definition (adds the new table for bank kits)
 dbInstance.version(3).stores({
+  projects: '++id, name, createdAt',
+  sampleKits: '++id, name, createdAt',
+  bankPresets: '++id, name, createdAt',
+  bankKits: '++id, name, createdAt',
+});
+
+// Version 4 definition (adds updates for new sample properties, no schema change needed as they are just JSON fields in samples array, but bumping version is good practice)
+dbInstance.version(4).stores({
   projects: '++id, name, createdAt',
   sampleKits: '++id, name, createdAt',
   bankPresets: '++id, name, createdAt',
