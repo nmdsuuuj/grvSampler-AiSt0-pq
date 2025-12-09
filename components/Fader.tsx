@@ -27,11 +27,12 @@ const Fader: React.FC<FaderProps> = ({
   
   // Sync internal state if the external value prop changes (e.g., from loading a project)
   useEffect(() => {
-    // FIX: Also check if the incoming value is finite before setting.
-    if (isFinite(value) && Math.abs(value - internalValue) > 1e-6) {
+    // This effect syncs the internal state to the external `value` prop.
+    // It runs only when the `value` prop changes.
+    if (isFinite(value)) {
       setInternalValue(value);
     }
-  }, [value, internalValue]);
+  }, [value]);
 
   const handleReset = () => {
     setInternalValue(defaultValue);

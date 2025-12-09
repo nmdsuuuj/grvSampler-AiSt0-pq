@@ -65,6 +65,7 @@ const App: React.FC = () => {
     stopRecording,
     startMasterRecording,
     stopMasterRecording,
+    lfoAnalysers // Get analysers
   } = useAudioEngine();
   useSequencer(playSample, playSynthNote, scheduleLfoRetrigger);
 
@@ -284,7 +285,7 @@ const App: React.FC = () => {
       case 'PROJECT':
         return <ProjectView />;
       case 'SYNTH':
-        return <SynthView playSynthNote={playSynthNote} />;
+        return <SynthView playSynthNote={playSynthNote} lfoAnalysers={lfoAnalysers} />;
       default:
         return <SampleView 
             activeSampleId={state.activeSampleId}

@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useEffect } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, SynthPreset } from '../../types';
@@ -5,15 +6,17 @@ import Fader from '../Fader';
 import Pad from '../Pad';
 import { OSC_WAVEFORMS, LFO_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES, LFO_SYNC_TRIGGERS } from '../../constants';
 import ModulationNode from '../ModulationNode';
+import LfoVisualizer from '../LfoVisualizer';
 
 interface SynthViewProps {
     playSynthNote: (detune: number, time?: number) => void;
+    lfoAnalysers: React.MutableRefObject<{ lfo1: AnalyserNode | null; lfo2: AnalyserNode | null; }>;
 }
 
 type SynthTab = 'OSC' | 'FLT/ENV' | 'LFO/MOD' | 'PRESETS';
 type PresetMode = 'LOAD' | 'SAVE';
 
-const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
+const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers }) => {
     const { state, dispatch } = useContext(AppContext);
     const { synth, synthModMatrix, synthPresets, isModMatrixMuted } = state;
 
@@ -250,8 +253,11 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                 };
                 return (
                     <div className="p-1 h-full flex flex-col space-y-1">
-                        <div className="flex justify-around gap-1">
+                        <div className="flex justify-around gap-1 h-28">
                             {renderControlSection('', <>
+                                <div className="h-10">
+                                    <LfoVisualizer analyser={lfoAnalysers.current.lfo1} color="#f472b6" />
+                                </div>
                                 <div className="flex items-center space-x-2">
                                     <div className="flex-grow">
                                         <Fader 
@@ -280,6 +286,9 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote }) => {
                                 }} className="bg-emerald-100 p-1 rounded text-xs font-bold text-slate-600 w-full">Sync Trig: {synth.lfo1.syncTrigger}</button>
                             </>, "w-1/2")}
                             {renderControlSection('', <>
+                                <div className="h-10">
+                                    <LfoVisualizer analyser={lfoAnalysers.current.lfo2} color="#38bdf8" />
+                                </div>
                                 <div className="flex items-center space-x-2">
                                     <div className="flex-grow">
                                         <Fader 

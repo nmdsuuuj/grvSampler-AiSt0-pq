@@ -1,4 +1,3 @@
-
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, Sample, PlaybackParams, BiquadFilterType } from '../types';
@@ -48,6 +47,9 @@ type SynthGraphNodes = {
     // Envelope Source for Mod Matrix
     filterEnvSource: ConstantSourceNode;
     filterEnvGain: GainNode;
+    // Analysers for Visualization
+    lfo1Analyser: AnalyserNode;
+    lfo2Analyser: AnalyserNode;
 };
 
 // --- Synth Audio Generation Helpers (outside hook for memoization) ---
@@ -106,7 +108,6 @@ const createLfoWave = (type: string, audioContext: AudioContext): PeriodicWave =
     if (lfoWaveCache.has(type)) {
         return lfoWaveCache.get(type)!;
     }
-
     const n = 4096;
     const real = new Float32Array(n);
     const imag = new Float32Array(n);
@@ -114,28 +115,44 @@ const createLfoWave = (type: string, audioContext: AudioContext): PeriodicWave =
 
     for (let i = 1; i < n; i++) {
         const pi_i = Math.PI * i;
-        switch (type) {
+        switch(type) {
             case 'Sine': imag[i] = (i === 1) ? 1 : 0; break;
-            case 'Triangle': if (i % 2 !== 0) imag[i] = 8 / (pi_i * pi_i) * (Math.pow(-1, (i - 1) / 2)); break;
+            case 'Triangle': if (i % 2 !== 0) imag[i] = 8 * Math.sin(pi_i / 2) / (pi_i * pi_i); break;
             case 'Square': if (i % 2 !== 0) imag[i] = 4 / pi_i; break;
             case 'Saw Down': imag[i] = 2 / pi_i; break;
             case 'Saw Up': imag[i] = -2 / pi_i; break;
-            case 'Pulse 25%': imag[i] = (2 / pi_i) * Math.sin(i * Math.PI * 0.25); break;
-            case 'Pulse 10%': imag[i] = (2 / pi_i) * Math.sin(i * Math.PI * 0.10); break;
-            case 'S&H Smooth': imag[i] = (Math.random() * 2 - 1) / i; break;
-            case 'Sine Half': if (i === 1) imag[i] = 0.5; else if (i % 2 === 0) real[i] = -2 / (Math.PI * (i * i - 1)); break;
-            case 'Expo Up': imag[i] = -2 / pi_i; break; // Approx
-            case 'Expo Down': imag[i] = 2 / pi_i; break; // Approx
-            case 'Ramp Up': imag[i] = -2 / pi_i; break;
-            case 'Ramp Down': imag[i] = 2 / pi_i; break;
-            case 'Spike': imag[i] = Math.pow(-1, i) * (2 / pi_i); break;
-            default: // Random/Weird/Stairs/Others - Generate rich spectra with random phase for interesting LFO shapes
-                 imag[i] = (Math.random() * 2 - 1) / Math.pow(i, 1.2);
-                 real[i] = (Math.random() * 2 - 1) / Math.pow(i, 1.2);
-                 break;
+            case 'Pulse 25%': imag[i] = (2 / pi_i) * Math.sin(pi_i / 2); break;
+            case 'Pulse 10%': imag[i] = (2 / pi_i) * Math.sin(pi_i * 0.2); break;
+            case 'S&H Smooth': if (i < 32) imag[i] = (Math.random() * 2 - 1) / i; break;
+            case 'Sine Half': for (let j=1; j<n; j++) imag[j] = j === 1 ? 1 : (j % 2 === 0 ? 2 / (Math.PI * (1 - j*j)) : 0); real[1] = 1/Math.PI; break;
+            case 'Sine Quarter': for (let j=1; j<n; j++) real[j] = Math.cos(pi_i/2) / (1-i*i) * (4/Math.PI); break;
+            case 'Expo Up': for (let j=1; j<n; j++) imag[j] = (2 * (pi_i * Math.cos(pi_i) - Math.sin(pi_i))) / (pi_i * pi_i); break;
+            case 'Expo Down': for (let j=1; j<n; j++) imag[j] = (2 * (Math.sin(pi_i) - pi_i)) / (pi_i * pi_i); break;
+            case 'Stairs 4': for (let j=1; j<n; j++) imag[j] = (j % 4 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/2)) : 0; break;
+            case 'Stairs 8': for (let j=1; j<n; j++) imag[j] = (j % 8 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/4)) : 0; break;
+            case 'Stairs 16': for (let j=1; j<n; j++) imag[j] = (j % 16 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/8)) : 0; break;
+            case 'Tri-Sine': if (i % 2 !== 0) imag[i] = 4 * Math.sin(pi_i / 2) / (pi_i * pi_i * pi_i); break;
+            case 'Bouncing Ball': for(let j=1; j<n; j++) imag[j] = Math.exp(-j/5) * Math.abs(Math.sin(j*0.5)); break;
+            case 'Jitter': for(let j=1; j<n; j++) if (j < 64) imag[j] = (Math.random() - 0.5) / Math.sqrt(j); break;
+            case 'Ramp Up': for(let j=1; j<n; j++) imag[j] = -2 * Math.cos(pi_i) / pi_i; break;
+            case 'Ramp Down': for(let j=1; j<n; j++) imag[j] = 2 * Math.cos(pi_i) / pi_i; break;
+            case 'Spike': if (i % 2 !== 0) for(let j=1; j<n; j++) imag[j] = Math.pow(-1, (j-1)/2) / (j*j); break;
+            case 'Random Ramp': for(let j=1; j<n; j++) imag[j] = (Math.random() > 0.5 ? 2 : -2) * Math.cos(pi_i) / pi_i; break;
+            case 'Random Steps': for(let j=1; j<n; j++) imag[j] = (Math.random() * 2 - 1) / j; break;
+            case 'S&H Gliss': if (i < 16) imag[i] = (Math.random() > 0.5 ? 1 : -1) / i; break;
+            case 'Sine Bend Up': imag[i] = (i === 1) ? 1 : (i === 2) ? 0.5 : 0; break;
+            case 'Sine Bend Down': imag[i] = (i === 1) ? 1 : (i === 2) ? -0.5 : 0; break;
+            case 'Cubic': if (i % 2 !== 0) imag[i] = 96 * (pi_i*pi_i - 8) * Math.sin(pi_i) / (pi_i*pi_i*pi_i*pi_i*pi_i); break;
+            case 'Parabolic': if (i % 2 === 0) imag[i] = 16 * Math.sin(pi_i/2) / (pi_i*pi_i*pi_i); break;
+            case 'Chaotic 1': for(let j=1; j<n; j++) imag[j] = Math.sin(j*j) / j; break;
+            case 'Chaotic 2': for(let j=1; j<n; j++) imag[j] = Math.cos(j*Math.log(j)) / j; break;
+            case 'Weird': for(let j=1; j<n; j++) imag[j] = Math.sin(Math.tan(j)) / j; break;
+            case 'S&H Steps': imag[i] = (Math.random() * 2 - 1) / i; break;
+            default: imag[i] = (i === 1) ? 1 : 0; break; // Default to Sine
         }
     }
 
+    // Ensure normalization is enabled so LFO outputs are within -1 to 1 range
     const wave = audioContext.createPeriodicWave(real, imag, { disableNormalization: false });
     lfoWaveCache.set(type, wave);
     return wave;
@@ -252,6 +269,9 @@ export const useAudioEngine = () => {
         osc2Type: string;
     } | null>(null);
     const activeNoteRef = useRef<{ gateEndTime: number } | null>(null);
+
+    // Refs for LFO visualization
+    const lfoAnalysersRef = useRef<{ lfo1: AnalyserNode | null; lfo2: AnalyserNode | null }>({ lfo1: null, lfo2: null });
 
     // Create a ref to hold the latest state for use in callbacks without causing re-renders.
     const stateRef = useRef(state);
@@ -371,6 +391,12 @@ export const useAudioEngine = () => {
             const lfo2 = audioContext.createOscillator();
             const lfo1_ws1_modGain = audioContext.createGain();
             const lfo1_ws2_modGain = audioContext.createGain();
+            
+            // LFO Analysers
+            const lfo1Analyser = audioContext.createAnalyser();
+            const lfo2Analyser = audioContext.createAnalyser();
+            lfo1Analyser.fftSize = 2048;
+            lfo2Analyser.fftSize = 2048;
 
             // Special Filter Nodes
             const combDelay = audioContext.createDelay(1.0);
@@ -450,8 +476,20 @@ export const useAudioEngine = () => {
                     modSourceNode.connect(gainNode);
 
                     // --- CONNECT DESTINATIONS ---
+                    // FIX: Ensure correct routing from modGains to target parameters
+                    // Pitch = Detune
+                    if (dest === 'osc1Pitch' && oscSource1 instanceof OscillatorNode) gainNode.connect(oscSource1.detune);
+                    if (dest === 'osc2Pitch' && oscSource2 instanceof OscillatorNode) gainNode.connect(oscSource2.detune);
+                    
+                    // FM = FM Gain
                     if (dest === 'osc1FM') gainNode.connect(fm1Gain.gain);
                     if (dest === 'osc2FM') gainNode.connect(fm2Gain.gain);
+                    
+                    // Wave = Shaper Input Gain
+                    if (dest === 'osc1Wave') gainNode.connect(shaper1InputGain.gain);
+                    if (dest === 'osc2Wave') gainNode.connect(shaper2InputGain.gain);
+
+                    // Filter
                     if (dest === 'filterCutoff') {
                         gainNode.connect(filterNode1.frequency);
                         gainNode.connect(filterNode2.frequency);
@@ -460,12 +498,6 @@ export const useAudioEngine = () => {
                          gainNode.connect(filterNode1.Q);
                          gainNode.connect(filterNode2.Q);
                     }
-                    if (dest === 'osc1Pitch' && oscSource1 instanceof OscillatorNode) gainNode.connect(oscSource1.detune);
-                    if (dest === 'osc2Pitch' && oscSource2 instanceof OscillatorNode) gainNode.connect(oscSource2.detune);
-                    
-                    // FIX: CONNECT WAVE MODULATION
-                    if (dest === 'osc1Wave') gainNode.connect(shaper1InputGain.gain);
-                    if (dest === 'osc2Wave') gainNode.connect(shaper2InputGain.gain);
                 });
             });
             
@@ -475,6 +507,10 @@ export const useAudioEngine = () => {
             lfo1.connect(lfo1_ws2_modGain);
             lfo1_ws1_modGain.connect(shaper1InputGain.gain);
             lfo1_ws2_modGain.connect(shaper2InputGain.gain);
+            
+            // Connect LFOs to analysers
+            lfo1.connect(lfo1Analyser);
+            lfo2.connect(lfo2Analyser);
 
             lfo1.start();
             lfo2.start();
@@ -488,11 +524,15 @@ export const useAudioEngine = () => {
                     lfo1_ws1_modGain, lfo1_ws2_modGain,
                     combDelay, combFeedbackGain, combInGain, combOutGain,
                     formantInGain, formantFilters, formantOutGain,
-                    filterEnvSource, filterEnvGain
+                    filterEnvSource, filterEnvGain,
+                    lfo1Analyser, lfo2Analyser // Add to graph
                 },
                 osc1Type: state.synth.osc1.type,
                 osc2Type: state.synth.osc2.type,
             };
+            
+            // Expose analysers
+            lfoAnalysersRef.current = { lfo1: lfo1Analyser, lfo2: lfo2Analyser };
 
             // --- Robust initial FM connection ---
             if (oscSource1 instanceof OscillatorNode && oscSource2 instanceof OscillatorNode) {
@@ -510,7 +550,7 @@ export const useAudioEngine = () => {
         const { filter } = state.synth;
         const now = state.audioContext.currentTime;
 
-        // Reset all filter input gains to 0 to prevent signal bleeding
+        // Reset all filter input gains to 0 to prevent signal bleeding (metallic sound fix)
         nodes.preFilterGain.gain.cancelScheduledValues(now);
         nodes.preFilterGain.gain.setValueAtTime(0, now);
         
@@ -538,6 +578,7 @@ export const useAudioEngine = () => {
         } else if (filter.type === 'Formant Vowel') {
             nodes.formantInGain.gain.setValueAtTime(1, now);
             // Formant approximation logic
+            // Simple mapping of cutoff to vowel formants A-E-I-O-U
             const c = filter.cutoff; // 20 - 20000
             
             // Just static filter setup that moves with cutoff
@@ -561,6 +602,31 @@ export const useAudioEngine = () => {
         }
 
     }, [state.synth.filter.type, state.synth.filter.cutoff, state.synth.filter.resonance, state.audioContext]);
+
+    // --- EFFECT: Update LFO Frequencies Real-time ---
+    useEffect(() => {
+        if (!state.audioContext || !synthGraphRef.current) return;
+        const { nodes } = synthGraphRef.current;
+        const { lfo1, lfo2 } = state.synth;
+        const { bpm } = state;
+        const now = state.audioContext.currentTime;
+
+        const updateLfo = (lfoNode: OscillatorNode, params: typeof lfo1) => {
+            let frequency = params.rate;
+            if (params.rateMode === 'sync') {
+                const syncData = LFO_SYNC_RATES[params.rate];
+                if (syncData) {
+                    frequency = (bpm / 60) / syncData.beats;
+                }
+            }
+            lfoNode.frequency.cancelScheduledValues(now);
+            lfoNode.frequency.setTargetAtTime(frequency, now, 0.05); 
+        };
+
+        updateLfo(nodes.lfo1, lfo1);
+        updateLfo(nodes.lfo2, lfo2);
+
+    }, [state.synth.lfo1.rate, state.synth.lfo1.rateMode, state.synth.lfo2.rate, state.synth.lfo2.rateMode, state.bpm, state.audioContext]);
 
     // --- EFFECT: Sync Mod Matrix Gains Reactively ---
     useEffect(() => {
@@ -657,7 +723,7 @@ export const useAudioEngine = () => {
                  try { envPitchGain.disconnect(oldSource.detune); } catch(e){}
             }
 
-            // Connect new pitch modulations
+            // Connect new pitch modulations (Targeting DETUNE, not frequency)
             if (newSource instanceof OscillatorNode) {
                 lfo1PitchGain.connect(newSource.detune);
                 lfo2PitchGain.connect(newSource.detune);
@@ -985,7 +1051,7 @@ export const useAudioEngine = () => {
     }, []);
 
     const playSynthNote = useCallback((relativeDetune: number, scheduleTime: number) => {
-        const { audioContext: ctx, synth: currentSynth, synthModMatrix: currentModMatrix, isModMatrixMuted } = stateRef.current;
+        const { audioContext: ctx, synth: currentSynth } = stateRef.current;
         const synthGraph = synthGraphRef.current;
         if (!ctx || !synthGraph) return;
     
@@ -1003,13 +1069,20 @@ export const useAudioEngine = () => {
 
         const { nodes } = synthGraph;
         
-        // --- Mod Matrix application has been moved to a useEffect for real-time reactivity ---
-        // We only need to set non-modulated / per-note params here.
+        // --- NOTE PARAMS (Static per note) ---
+        // STATIC FM DEPTH (The knobs on the OSC tabs)
+        // osc2.fmDepth controls "FM 2>1" -> Oscillator 2 modulates Oscillator 1
+        // This targets fm1Gain (which connects Osc2 to Osc1)
+        nodes.fm1Gain.gain.setValueAtTime(osc2.fmDepth, effectiveTime);
+        
+        // osc1.fmDepth controls "FM 1>2" -> Oscillator 1 modulates Oscillator 2
+        // This targets fm2Gain (which connects Osc1 to Osc2)
+        nodes.fm2Gain.gain.setValueAtTime(osc1.fmDepth, effectiveTime);
 
-        // Apply fixed LFO amounts
-        nodes.lfo1_ws1_modGain.gain.setValueAtTime(osc1.wsLfoAmount || 0, effectiveTime);
+        // Apply fixed LFO amounts with 5x scaling as requested
+        nodes.lfo1_ws1_modGain.gain.setValueAtTime((osc1.wsLfoAmount || 0) * 5, effectiveTime);
         // FIX: Correctly access the gain node for LFO1 -> WS2
-        nodes.lfo1_ws2_modGain.gain.setValueAtTime(osc2.wsLfoAmount || 0, effectiveTime);
+        nodes.lfo1_ws2_modGain.gain.setValueAtTime((osc2.wsLfoAmount || 0) * 5, effectiveTime);
 
         // --- Set Oscillator Parameters ---
         if (nodes.oscSource1 instanceof OscillatorNode) {
@@ -1034,8 +1107,6 @@ export const useAudioEngine = () => {
         nodes.filterNode1.Q.setValueAtTime(filter.resonance, effectiveTime);
         nodes.filterNode2.Q.setValueAtTime(filter.resonance, effectiveTime);
         
-        // Note: Filter types are updated in the useEffect above, not here
-
         // --- Filter Envelope Triggering ---
         // 1. Direct Envelope -> Filter Frequency
         const envAmt = filter.envAmount;
@@ -1122,7 +1193,9 @@ export const useAudioEngine = () => {
  
             mediaRecorder.onstop = () => {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                loadSampleFromBlob(audioBlob, activeSampleId, `Rec ${new Date().toLocaleTimeString()}`);
+                // FIX: Using a locale-independent time format to avoid potential errors.
+                const timeString = new Date().toTimeString().split(' ')[0];
+                loadSampleFromBlob(audioBlob, activeSampleId, `Rec ${timeString}`);
                 
                 // Cleanup
                 stream.getTracks().forEach(track => track.stop());
@@ -1248,7 +1321,9 @@ export const useAudioEngine = () => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Master - ${new Date().toLocaleTimeString()}.wav`;
+            // FIX: Using a locale-independent time format for consistency.
+            const timeString = new Date().toTimeString().split(' ')[0];
+            a.download = `Master - ${timeString}.wav`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -1277,6 +1352,7 @@ export const useAudioEngine = () => {
         startRecording,
         stopRecording,
         startMasterRecording,
-        stopMasterRecording
+        stopMasterRecording,
+        lfoAnalysers: lfoAnalysersRef // Expose analysers
     };
 };
