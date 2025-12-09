@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { AppContext } from './context/AppContext';
 import { Action, ActionType, PlaybackParams } from './types';
@@ -109,25 +110,53 @@ const App: React.FC = () => {
           case 'f':
               appDispatch({ type: ActionType.SET_KEYBOARD_OCTAVE, payload: Math.min(8, keyboardOctave + 1) });
               return;
-          case 'k':
-              appDispatch({ type: ActionType.SET_KEY, payload: (activeKey - 1 + 12) % 12 });
+          case 'k': {
+              const newKey = (activeKey - 1 + 12) % 12;
+              appDispatch({ type: ActionType.SET_KEY, payload: newKey });
+              // Also update active pattern playback key
+              const activePatternId = activePatternIds[activeSampleBank];
+              if (activePatternId !== undefined) {
+                  appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, key: newKey } });
+              }
               return;
-          case 'l':
-              appDispatch({ type: ActionType.SET_KEY, payload: (activeKey + 1) % 12 });
+          }
+          case 'l': {
+              const newKey = (activeKey + 1) % 12;
+              appDispatch({ type: ActionType.SET_KEY, payload: newKey });
+              // Also update active pattern playback key
+              const activePatternId = activePatternIds[activeSampleBank];
+              if (activePatternId !== undefined) {
+                  appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, key: newKey } });
+              }
               return;
+          }
       }
       
       switch (key) {
-        case '/':
+        case ';': { // Scale Previous (Down)
             const currentIndexDown = SCALES.findIndex(s => s.name === activeScale);
             const prevIndex = (currentIndexDown - 1 + SCALES.length) % SCALES.length;
-            appDispatch({ type: ActionType.SET_SCALE, payload: SCALES[prevIndex].name });
+            const newScale = SCALES[prevIndex].name;
+            appDispatch({ type: ActionType.SET_SCALE, payload: newScale });
+            // Also update active pattern playback scale
+            const activePatternId = activePatternIds[activeSampleBank];
+            if (activePatternId !== undefined) {
+                appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, scale: newScale } });
+            }
             return;
-        case '\\':
+        }
+        case ':': { // Scale Next (Up)
             const currentIndexUp = SCALES.findIndex(s => s.name === activeScale);
             const nextIndex = (currentIndexUp + 1) % SCALES.length;
-            appDispatch({ type: ActionType.SET_SCALE, payload: SCALES[nextIndex].name });
+            const newScale = SCALES[nextIndex].name;
+            appDispatch({ type: ActionType.SET_SCALE, payload: newScale });
+            // Also update active pattern playback scale
+            const activePatternId = activePatternIds[activeSampleBank];
+            if (activePatternId !== undefined) {
+                appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, scale: newScale } });
+            }
             return;
+        }
       }
   
       const bankMap: { [key: string]: number } = { '9': 0, '0': 1, '-': 2, '^': 3 };

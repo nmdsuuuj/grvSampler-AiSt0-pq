@@ -2,7 +2,7 @@
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, Sample, PlaybackParams, BiquadFilterType } from '../types';
-import { PADS_PER_BANK, TOTAL_BANKS, TOTAL_SAMPLES, LFO_SYNC_RATES } from '../constants';
+import { PADS_PER_BANK, TOTAL_BANKS, TOTAL_SAMPLES, LFO_SYNC_RATES, MOD_SOURCES, MOD_DESTINATIONS } from '../constants';
 
 const RAMP_TIME = 0.005; // 5ms ramp for all parameter changes to prevent clicks
 
@@ -45,6 +45,9 @@ type SynthGraphNodes = {
     modGains: { [key: string]: GainNode }; // For LFO -> destination modulation
     lfo1_ws1_modGain: GainNode;
     lfo1_ws2_modGain: GainNode;
+    // Envelope Source for Mod Matrix
+    filterEnvSource: ConstantSourceNode;
+    filterEnvGain: GainNode;
 };
 
 // --- Synth Audio Generation Helpers (outside hook for memoization) ---
@@ -94,11 +97,16 @@ const makeDistortionCurve = (type: string, amount: number): Float32Array => {
     return curve;
 };
 
+// Revert to simple Map for caching (No WeakMap)
+const oscWaveCache = new Map<string, PeriodicWave>();
+const noiseBufferCache = new Map<string, AudioBuffer>();
 const lfoWaveCache = new Map<string, PeriodicWave>();
+
 const createLfoWave = (type: string, audioContext: AudioContext): PeriodicWave => {
     if (lfoWaveCache.has(type)) {
         return lfoWaveCache.get(type)!;
     }
+
     const n = 4096;
     const real = new Float32Array(n);
     const imag = new Float32Array(n);
@@ -106,55 +114,39 @@ const createLfoWave = (type: string, audioContext: AudioContext): PeriodicWave =
 
     for (let i = 1; i < n; i++) {
         const pi_i = Math.PI * i;
-        switch(type) {
+        switch (type) {
             case 'Sine': imag[i] = (i === 1) ? 1 : 0; break;
-            case 'Triangle': if (i % 2 !== 0) imag[i] = 8 * Math.sin(pi_i / 2) / (pi_i * pi_i); break;
+            case 'Triangle': if (i % 2 !== 0) imag[i] = 8 / (pi_i * pi_i) * (Math.pow(-1, (i - 1) / 2)); break;
             case 'Square': if (i % 2 !== 0) imag[i] = 4 / pi_i; break;
             case 'Saw Down': imag[i] = 2 / pi_i; break;
             case 'Saw Up': imag[i] = -2 / pi_i; break;
-            case 'Pulse 25%': imag[i] = (2 / pi_i) * Math.sin(pi_i / 2); break;
-            case 'Pulse 10%': imag[i] = (2 / pi_i) * Math.sin(pi_i * 0.2); break;
-            case 'S&H Smooth': if (i < 32) imag[i] = (Math.random() * 2 - 1) / i; break;
-            case 'Sine Half': for (let j=1; j<n; j++) imag[j] = j === 1 ? 1 : (j % 2 === 0 ? 2 / (Math.PI * (1 - j*j)) : 0); real[1] = 1/Math.PI; break;
-            case 'Sine Quarter': for (let j=1; j<n; j++) real[j] = Math.cos(pi_i/2) / (1-i*i) * (4/Math.PI); break;
-            case 'Expo Up': for (let j=1; j<n; j++) imag[j] = (2 * (pi_i * Math.cos(pi_i) - Math.sin(pi_i))) / (pi_i * pi_i); break;
-            case 'Expo Down': for (let j=1; j<n; j++) imag[j] = (2 * (Math.sin(pi_i) - pi_i)) / (pi_i * pi_i); break;
-            case 'Stairs 4': for (let j=1; j<n; j++) imag[j] = (j % 4 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/2)) : 0; break;
-            case 'Stairs 8': for (let j=1; j<n; j++) imag[j] = (j % 8 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/4)) : 0; break;
-            case 'Stairs 16': for (let j=1; j<n; j++) imag[j] = (j % 16 !== 0) ? (2/pi_i) * (1-Math.cos(pi_i/8)) : 0; break;
-            case 'Tri-Sine': if (i % 2 !== 0) imag[i] = 4 * Math.sin(pi_i / 2) / (pi_i * pi_i * pi_i); break;
-            case 'Bouncing Ball': for(let j=1; j<n; j++) imag[j] = Math.exp(-j/5) * Math.abs(Math.sin(j*0.5)); break;
-            case 'Jitter': for(let j=1; j<n; j++) if (j < 64) imag[j] = (Math.random() - 0.5) / Math.sqrt(j); break;
-            case 'Ramp Up': for(let j=1; j<n; j++) imag[j] = -2 * Math.cos(pi_i) / pi_i; break;
-            case 'Ramp Down': for(let j=1; j<n; j++) imag[j] = 2 * Math.cos(pi_i) / pi_i; break;
-            case 'Spike': if (i % 2 !== 0) for(let j=1; j<n; j++) imag[j] = Math.pow(-1, (j-1)/2) / (j*j); break;
-            case 'Random Ramp': for(let j=1; j<n; j++) imag[j] = (Math.random() > 0.5 ? 2 : -2) * Math.cos(pi_i) / pi_i; break;
-            case 'Random Steps': for(let j=1; j<n; j++) imag[j] = (Math.random() * 2 - 1) / j; break;
-            case 'S&H Gliss': if (i < 16) imag[i] = (Math.random() > 0.5 ? 1 : -1) / i; break;
-            case 'Sine Bend Up': imag[i] = (i === 1) ? 1 : (i === 2) ? 0.5 : 0; break;
-            case 'Sine Bend Down': imag[i] = (i === 1) ? 1 : (i === 2) ? -0.5 : 0; break;
-            case 'Cubic': if (i % 2 !== 0) imag[i] = 96 * (pi_i*pi_i - 8) * Math.sin(pi_i) / (pi_i*pi_i*pi_i*pi_i*pi_i); break;
-            case 'Parabolic': if (i % 2 === 0) imag[i] = 16 * Math.sin(pi_i/2) / (pi_i*pi_i*pi_i); break;
-            case 'Chaotic 1': for(let j=1; j<n; j++) imag[j] = Math.sin(j*j) / j; break;
-            case 'Chaotic 2': for(let j=1; j<n; j++) imag[j] = Math.cos(j*Math.log(j)) / j; break;
-            case 'Weird': for(let j=1; j<n; j++) imag[j] = Math.sin(Math.tan(j)) / j; break;
-            case 'S&H Steps': imag[i] = (Math.random() * 2 - 1) / i; break;
-            default: imag[i] = (i === 1) ? 1 : 0; break;
+            case 'Pulse 25%': imag[i] = (2 / pi_i) * Math.sin(i * Math.PI * 0.25); break;
+            case 'Pulse 10%': imag[i] = (2 / pi_i) * Math.sin(i * Math.PI * 0.10); break;
+            case 'S&H Smooth': imag[i] = (Math.random() * 2 - 1) / i; break;
+            case 'Sine Half': if (i === 1) imag[i] = 0.5; else if (i % 2 === 0) real[i] = -2 / (Math.PI * (i * i - 1)); break;
+            case 'Expo Up': imag[i] = -2 / pi_i; break; // Approx
+            case 'Expo Down': imag[i] = 2 / pi_i; break; // Approx
+            case 'Ramp Up': imag[i] = -2 / pi_i; break;
+            case 'Ramp Down': imag[i] = 2 / pi_i; break;
+            case 'Spike': imag[i] = Math.pow(-1, i) * (2 / pi_i); break;
+            default: // Random/Weird/Stairs/Others - Generate rich spectra with random phase for interesting LFO shapes
+                 imag[i] = (Math.random() * 2 - 1) / Math.pow(i, 1.2);
+                 real[i] = (Math.random() * 2 - 1) / Math.pow(i, 1.2);
+                 break;
         }
     }
-    const wave = audioContext.createPeriodicWave(real, imag, { disableNormalization: true });
+
+    const wave = audioContext.createPeriodicWave(real, imag, { disableNormalization: false });
     lfoWaveCache.set(type, wave);
     return wave;
 };
 
-const oscWaveCache = new Map<string, PeriodicWave>();
-const noiseBufferCache = new Map<string, AudioBuffer>();
-
 const createOscillatorSource = (type: string, audioContext: AudioContext): OscillatorNode | AudioBufferSourceNode => {
     if (type === 'Noise' || type === 'Glitch') {
          if (noiseBufferCache.has(type)) {
+            const cached = noiseBufferCache.get(type)!;
             const source = audioContext.createBufferSource();
-            source.buffer = noiseBufferCache.get(type)!;
+            source.buffer = cached;
             source.loop = true;
             return source;
         }
@@ -389,6 +381,13 @@ export const useAudioEngine = () => {
             const formantFilters = [audioContext.createBiquadFilter(), audioContext.createBiquadFilter(), audioContext.createBiquadFilter()];
             const formantOutGain = audioContext.createGain();
 
+            // Filter Env Source
+            const filterEnvSource = audioContext.createConstantSource();
+            filterEnvSource.offset.value = 1;
+            const filterEnvGain = audioContext.createGain();
+            filterEnvGain.gain.value = 0;
+            filterEnvSource.connect(filterEnvGain);
+            filterEnvSource.start();
 
             // --- Build Audio Graph ---
             oscSource1.connect(shaper1InputGain);
@@ -436,22 +435,21 @@ export const useAudioEngine = () => {
 
             // --- Modulation Setup ---
             const modGains: { [key: string]: GainNode } = {};
-            const modSources = ['lfo1', 'lfo2'];
-            const modDestinations = ['osc1Pitch', 'osc2Pitch', 'osc1FM', 'osc2FM', 'osc1Wave', 'osc2Wave', 'filterCutoff', 'filterQ'];
             
             // Connect static FM destination nodes
             if (oscSource1 instanceof OscillatorNode) fm1Gain.connect(oscSource1.frequency);
             if (oscSource2 instanceof OscillatorNode) fm2Gain.connect(oscSource2.frequency);
 
 
-            modSources.forEach(source => {
-                const modSourceNode = source === 'lfo1' ? lfo1 : lfo2;
-                modDestinations.forEach(dest => {
+            MOD_SOURCES.forEach(source => {
+                const modSourceNode = source === 'lfo1' ? lfo1 : (source === 'lfo2' ? lfo2 : filterEnvGain);
+                MOD_DESTINATIONS.forEach(dest => {
                     const gainNode = audioContext.createGain();
                     gainNode.gain.value = 0; // Initialize all mod depths to 0
                     modGains[`${source}_${dest}`] = gainNode;
                     modSourceNode.connect(gainNode);
 
+                    // --- CONNECT DESTINATIONS ---
                     if (dest === 'osc1FM') gainNode.connect(fm1Gain.gain);
                     if (dest === 'osc2FM') gainNode.connect(fm2Gain.gain);
                     if (dest === 'filterCutoff') {
@@ -464,6 +462,10 @@ export const useAudioEngine = () => {
                     }
                     if (dest === 'osc1Pitch' && oscSource1 instanceof OscillatorNode) gainNode.connect(oscSource1.detune);
                     if (dest === 'osc2Pitch' && oscSource2 instanceof OscillatorNode) gainNode.connect(oscSource2.detune);
+                    
+                    // FIX: CONNECT WAVE MODULATION
+                    if (dest === 'osc1Wave') gainNode.connect(shaper1InputGain.gain);
+                    if (dest === 'osc2Wave') gainNode.connect(shaper2InputGain.gain);
                 });
             });
             
@@ -485,7 +487,8 @@ export const useAudioEngine = () => {
                     mixer, fm1Gain, fm2Gain, preFilterGain, filterNode1, filterNode2, vca, lfo1, lfo2, modGains,
                     lfo1_ws1_modGain, lfo1_ws2_modGain,
                     combDelay, combFeedbackGain, combInGain, combOutGain,
-                    formantInGain, formantFilters, formantOutGain
+                    formantInGain, formantFilters, formantOutGain,
+                    filterEnvSource, filterEnvGain
                 },
                 osc1Type: state.synth.osc1.type,
                 osc2Type: state.synth.osc2.type,
@@ -500,15 +503,122 @@ export const useAudioEngine = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [audioContext]);
 
+    // --- EFFECT: Handle Filter Type Change Routing ---
+    useEffect(() => {
+        if (!synthGraphRef.current || !state.audioContext) return;
+        const { nodes } = synthGraphRef.current;
+        const { filter } = state.synth;
+        const now = state.audioContext.currentTime;
+
+        // Reset all filter input gains to 0 to prevent signal bleeding
+        nodes.preFilterGain.gain.cancelScheduledValues(now);
+        nodes.preFilterGain.gain.setValueAtTime(0, now);
+        
+        nodes.combInGain.gain.cancelScheduledValues(now);
+        nodes.combInGain.gain.setValueAtTime(0, now);
+        
+        nodes.formantInGain.gain.cancelScheduledValues(now);
+        nodes.formantInGain.gain.setValueAtTime(0, now);
+
+        // Open specific route based on type
+        if (filter.type.startsWith('Comb')) {
+            nodes.combInGain.gain.setValueAtTime(1, now);
+            // Set feedback polarity
+            const feedback = filter.type === 'Comb+' ? 0.95 : -0.95; 
+            // Scale feedback by resonance (0-30 -> 0-0.99) roughly
+            const resFactor = Math.min(0.99, filter.resonance / 30 * 0.99);
+            nodes.combFeedbackGain.gain.setValueAtTime(filter.type === 'Comb-' ? -resFactor : resFactor, now);
+            
+            // Comb frequency control (delay time)
+            // Cutoff (Hz) -> Delay Time (s)
+            // T = 1/f
+            const delayTime = 1 / Math.max(20, filter.cutoff);
+            nodes.combDelay.delayTime.setValueAtTime(delayTime, now);
+
+        } else if (filter.type === 'Formant Vowel') {
+            nodes.formantInGain.gain.setValueAtTime(1, now);
+            // Formant approximation logic
+            const c = filter.cutoff; // 20 - 20000
+            
+            // Just static filter setup that moves with cutoff
+            nodes.formantFilters[0].type = 'bandpass';
+            nodes.formantFilters[0].frequency.setValueAtTime(c, now);
+            nodes.formantFilters[0].Q.setValueAtTime(filter.resonance, now);
+            
+            nodes.formantFilters[1].type = 'bandpass';
+            nodes.formantFilters[1].frequency.setValueAtTime(c * 2.5, now);
+            nodes.formantFilters[1].Q.setValueAtTime(filter.resonance, now);
+            
+            nodes.formantFilters[2].type = 'bandpass';
+            nodes.formantFilters[2].frequency.setValueAtTime(c * 3.5, now);
+            nodes.formantFilters[2].Q.setValueAtTime(filter.resonance, now);
+
+        } else if (filter.type === 'Peak') {
+             nodes.preFilterGain.gain.setValueAtTime(1, now);
+        } else {
+            // Standard Lowpass/Highpass/Bandpass
+            nodes.preFilterGain.gain.setValueAtTime(1, now);
+        }
+
+    }, [state.synth.filter.type, state.synth.filter.cutoff, state.synth.filter.resonance, state.audioContext]);
+
+    // --- EFFECT: Sync Mod Matrix Gains Reactively ---
+    useEffect(() => {
+        if (!synthGraphRef.current || !state.audioContext) return;
+        const { nodes } = synthGraphRef.current;
+        const now = state.audioContext.currentTime;
+        const { synthModMatrix, isModMatrixMuted } = state;
+        const effectiveMatrix = isModMatrixMuted ? {} : synthModMatrix;
+
+        // 1. Reset all mod gains to 0 (to handle removed connections)
+        Object.values(nodes.modGains).forEach(g => {
+            // Use setValueAtTime for immediate reset (essential for Clear button)
+            g.gain.cancelScheduledValues(now);
+            g.gain.setValueAtTime(0, now);
+        });
+
+        // 2. Apply current matrix with proper scaling
+        Object.entries(effectiveMatrix).forEach(([source, dests]) => {
+            Object.entries(dests).forEach(([dest, amount]) => {
+                const gainNode = nodes.modGains[`${source}_${dest}`];
+                if (gainNode) {
+                    let scaledAmount = amount;
+                    // Apply scaling based on destination type to make modulation audible
+                    if (dest.includes('Pitch')) {
+                        // 1.0 = 1 Octave (1200 cents)
+                        scaledAmount = amount * 1200; 
+                    } else if (dest.includes('Cutoff')) {
+                        // 1.0 = 2400 Hz range approx
+                        scaledAmount = amount * 2400;
+                    } else if (dest.includes('FM')) {
+                        // 1.0 = 2000 Hz modulation depth
+                        scaledAmount = amount * 2000;
+                    } else if (dest.includes('Wave')) {
+                        // 1.0 = 5.0 gain (significant distortion change)
+                        scaledAmount = amount * 5;
+                    } else if (dest.includes('Q')) {
+                        scaledAmount = amount * 10;
+                    }
+                    
+                    // Use setValueAtTime for immediate response to fader
+                    gainNode.gain.cancelScheduledValues(now);
+                    gainNode.gain.setValueAtTime(scaledAmount, now);
+                }
+            });
+        });
+    }, [state.synthModMatrix, state.isModMatrixMuted, state.audioContext]);
+
+
     // --- ARCHITECTURAL FIX: Effect for handling waveform changes safely ---
     useEffect(() => {
         if (!audioContext || !synthGraphRef.current) return;
 
         const { nodes } = synthGraphRef.current;
+        const graph = synthGraphRef.current; // Capture ref for safe access
         
         const handleWaveformChange = (oscIndex: 1 | 2) => {
             const currentType = oscIndex === 1 ? synth.osc1.type : synth.osc2.type;
-            const oldType = oscIndex === 1 ? synthGraphRef.current.osc1Type : synthGraphRef.current.osc2Type;
+            const oldType = oscIndex === 1 ? graph.osc1Type : graph.osc2Type;
 
             if (currentType === oldType) return; // No change needed
 
@@ -527,10 +637,10 @@ export const useAudioEngine = () => {
             // 3. Update the graph reference
             if (oscIndex === 1) {
                 nodes.oscSource1 = newSource;
-                synthGraphRef.current.osc1Type = currentType;
+                graph.osc1Type = currentType;
             } else {
                 nodes.oscSource2 = newSource;
-                synthGraphRef.current.osc2Type = currentType;
+                graph.osc2Type = currentType;
             }
             
             // 4. Update LFO->Pitch and FM routing after the change
@@ -539,25 +649,43 @@ export const useAudioEngine = () => {
             // Disconnect old pitch modulations
             const lfo1PitchGain = oscIndex === 1 ? modGains['lfo1_osc1Pitch'] : modGains['lfo1_osc2Pitch'];
             const lfo2PitchGain = oscIndex === 1 ? modGains['lfo2_osc1Pitch'] : modGains['lfo2_osc2Pitch'];
+            const envPitchGain  = oscIndex === 1 ? modGains['filterEnv_osc1Pitch'] : modGains['filterEnv_osc2Pitch'];
+
             if (oldSource instanceof OscillatorNode) {
                  try { lfo1PitchGain.disconnect(oldSource.detune); } catch(e){}
                  try { lfo2PitchGain.disconnect(oldSource.detune); } catch(e){}
+                 try { envPitchGain.disconnect(oldSource.detune); } catch(e){}
             }
 
             // Connect new pitch modulations
             if (newSource instanceof OscillatorNode) {
                 lfo1PitchGain.connect(newSource.detune);
                 lfo2PitchGain.connect(newSource.detune);
+                envPitchGain.connect(newSource.detune);
             }
 
-            // Disconnect all FM sources
-            try { oscSource1.disconnect(fm2Gain); } catch(e){}
-            try { oscSource2.disconnect(fm1Gain); } catch(e){}
+            // Disconnect all FM sources (where THIS osc is the carrier or modulator)
+            // 1. FM Modulator connection (this osc -> other osc's FM gain)
+            if (oscIndex === 1) { // OSC 1 -> FM 2
+                 try { oscSource1.disconnect(fm2Gain); } catch(e){}
+            } else { // OSC 2 -> FM 1
+                 try { oscSource2.disconnect(fm1Gain); } catch(e){}
+            }
+            
+            // 2. FM Carrier connection (FM gain -> this osc freq)
+            const myFmGain = oscIndex === 1 ? fm1Gain : fm2Gain;
+            if (oldSource instanceof OscillatorNode) {
+                try { myFmGain.disconnect(oldSource.frequency); } catch(e){}
+            }
+            if (newSource instanceof OscillatorNode) {
+                myFmGain.connect(newSource.frequency);
+            }
 
-            // Reconnect FM sources if both are oscillators
-            if (oscSource1 instanceof OscillatorNode && oscSource2 instanceof OscillatorNode) {
-                oscSource1.connect(fm2Gain);
-                oscSource2.connect(fm1Gain);
+            // Reconnect FM modulators if both are oscillators
+            if (nodes.oscSource1 instanceof OscillatorNode && nodes.oscSource2 instanceof OscillatorNode) {
+                // Ensure connections exist
+                try { nodes.oscSource1.connect(fm2Gain); } catch(e){}
+                try { nodes.oscSource2.connect(fm1Gain); } catch(e){}
             }
         };
         
@@ -857,7 +985,7 @@ export const useAudioEngine = () => {
     }, []);
 
     const playSynthNote = useCallback((relativeDetune: number, scheduleTime: number) => {
-        const { audioContext: ctx, synth: currentSynth, synthModMatrix: currentModMatrix, bpm, isModMatrixMuted } = stateRef.current;
+        const { audioContext: ctx, synth: currentSynth, synthModMatrix: currentModMatrix, isModMatrixMuted } = stateRef.current;
         const synthGraph = synthGraphRef.current;
         if (!ctx || !synthGraph) return;
     
@@ -865,390 +993,290 @@ export const useAudioEngine = () => {
         const effectiveTime = scheduleTime === 0 ? now : scheduleTime;
         const { osc1, osc2, oscMix, filter, filterEnv, ampEnv, globalGateTime } = currentSynth;
         
-        const isLegato = activeNoteRef.current !== null && effectiveTime < activeNoteRef.current.gateEndTime;
+        // Gate handling for overlapping notes (Legato)
+        if (activeNoteRef.current && effectiveTime < activeNoteRef.current.gateEndTime) {
+             // Legato logic could go here, but for now we just retrigger
+        }
+        
         const gateEndTime = effectiveTime + globalGateTime;
-
-        // The complex graph-rewiring logic has been moved to its own useEffect,
-        // making this function much lighter and more stable.
-
-        const { nodes } = synthGraph;
-        const oscNode1 = nodes.oscSource1 instanceof OscillatorNode ? nodes.oscSource1 : null;
-        const oscNode2 = nodes.oscSource2 instanceof OscillatorNode ? nodes.oscSource2 : null;
-        
-        const effectiveModMatrix = isModMatrixMuted ? {} : currentModMatrix;
-
-        // --- Reset modulation gains on every note for consistency ---
-        Object.values(nodes.modGains).forEach(gainNode => gainNode.gain.cancelAndHoldAtTime(effectiveTime).setValueAtTime(0, effectiveTime));
-        nodes.lfo1_ws1_modGain.gain.cancelAndHoldAtTime(effectiveTime).setValueAtTime(0, effectiveTime);
-        nodes.lfo1_ws2_modGain.gain.cancelAndHoldAtTime(effectiveTime).setValueAtTime(0, effectiveTime);
-
-        // --- LFO Gate Retrigger ---
-        if (currentSynth.lfo1.syncTrigger === 'Gate' && !isLegato) scheduleLfoRetrigger(0, effectiveTime);
-        if (currentSynth.lfo2.syncTrigger === 'Gate' && !isLegato) scheduleLfoRetrigger(1, effectiveTime);
-
-        const absoluteDetune = relativeDetune + 6000;
-        const baseFreq = 440 * Math.pow(2, (absoluteDetune - 6900) / 1200);
-        const timeConstant = (duration: number) => Math.max(0.001, duration / 5);
-
-        if (oscNode1) {
-            const freq1 = baseFreq * Math.pow(2, osc1.octave);
-            oscNode1.frequency.cancelScheduledValues(effectiveTime);
-            oscNode1.frequency.setTargetAtTime(freq1, effectiveTime, 0.002);
-            oscNode1.detune.cancelScheduledValues(effectiveTime);
-            oscNode1.detune.setTargetAtTime(osc1.detune, effectiveTime, 0.002);
-        }
-        if (oscNode2) {
-            const freq2 = baseFreq * Math.pow(2, osc2.octave);
-            oscNode2.frequency.cancelScheduledValues(effectiveTime);
-            oscNode2.frequency.setTargetAtTime(freq2, effectiveTime, 0.002);
-            oscNode2.detune.cancelScheduledValues(effectiveTime);
-            oscNode2.detune.setTargetAtTime(osc2.detune, effectiveTime, 0.002);
-        }
-        
-        nodes.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
-        nodes.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
-        
-        nodes.fm1Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc2.fmDepth : 0, effectiveTime);
-        nodes.fm2Gain.gain.setValueAtTime(oscNode1 && oscNode2 ? osc1.fmDepth : 0, effectiveTime);
-        
-        nodes.shaper1.curve = makeDistortionCurve(osc1.waveshapeType, osc1.waveshapeAmount);
-        nodes.shaper2.curve = makeDistortionCurve(osc2.waveshapeType, osc2.waveshapeAmount);
-    
-        // --- Filter Setup ---
-        nodes.preFilterGain.gain.setValueAtTime(0, effectiveTime);
-        nodes.combInGain.gain.setValueAtTime(0, effectiveTime);
-        nodes.formantInGain.gain.setValueAtTime(0, effectiveTime);
-
-        const isStandard = filter.type.includes('pass') || filter.type.includes('Peak');
-        const isComb = filter.type.includes('Comb');
-        const isFormant = filter.type.includes('Formant');
-        let baseCutoff = filter.cutoff;
-
-        if (isStandard) {
-            nodes.preFilterGain.gain.setValueAtTime(1, effectiveTime);
-            const is24dB = filter.type.includes('24dB');
-            const nativeFilterType = filter.type.includes('Peak') ? 'peaking' : (filter.type.toLowerCase().replace(' 12db', '').replace(' 24db', '')) as BiquadFilterType;
-            
-            nodes.filterNode1.type = nativeFilterType;
-            nodes.filterNode2.type = is24dB ? nativeFilterType : 'allpass';
-            if (!is24dB) nodes.filterNode2.frequency.setValueAtTime(20000, effectiveTime);
-
-        } else if (isComb) {
-            nodes.combInGain.gain.setValueAtTime(1, effectiveTime);
-            baseCutoff = Math.max(0.001, 1 / filter.cutoff); // Invert for delay time
-            nodes.combDelay.delayTime.setValueAtTime(baseCutoff, effectiveTime);
-            const feedback = Math.min(0.95, filter.resonance / 31);
-            nodes.combFeedbackGain.gain.setValueAtTime(filter.type === 'Comb+' ? feedback : -feedback, effectiveTime);
-        } else if (isFormant) {
-            nodes.formantInGain.gain.setValueAtTime(1, effectiveTime);
-        }
-        nodes.combOutGain.gain.setValueAtTime(isComb ? 1 : 0, effectiveTime);
-        nodes.formantOutGain.gain.setValueAtTime(isFormant ? 1 : 0, effectiveTime);
-
-        // --- LFOs & Modulation Matrix ---
-        const setupLfo = (lfoNode: OscillatorNode, lfoParams: typeof currentSynth.lfo1) => {
-            lfoNode.setPeriodicWave(createLfoWave(lfoParams.type, ctx));
-            const syncRateData = LFO_SYNC_RATES[lfoParams.rate];
-            const rate = lfoParams.rateMode === 'sync' && syncRateData ? (bpm / 60) / syncRateData.beats : lfoParams.rate;
-            lfoNode.frequency.setValueAtTime(rate, effectiveTime);
-        };
-        setupLfo(nodes.lfo1, currentSynth.lfo1);
-        setupLfo(nodes.lfo2, currentSynth.lfo2);
-        
-        Object.keys(effectiveModMatrix).forEach(source => {
-            Object.keys(effectiveModMatrix[source]).forEach(dest => {
-                const value = effectiveModMatrix[source][dest];
-                if (!value || source === 'filterEnv') return;
-                const gainNode = nodes.modGains[`${source}_${dest}`];
-                if (!gainNode) return;
-                
-                let modAmount = 1.0;
-                if (dest.includes('Pitch')) modAmount = 100;
-                if (dest.includes('FM')) modAmount = 2000;
-                if (dest.includes('Cutoff')) modAmount = 5000;
-                if (dest.includes('Q')) modAmount = 15;
-                gainNode.gain.setValueAtTime(modAmount * value, effectiveTime);
-            });
-        });
-        nodes.lfo1_ws1_modGain.gain.setValueAtTime(currentSynth.osc1.wsLfoAmount || 0, effectiveTime);
-        nodes.lfo1_ws2_modGain.gain.setValueAtTime(currentSynth.osc2.wsLfoAmount || 0, effectiveTime);
-        
-        // --- ENVELOPES ---
-        // ** FIX: Implement true AD envelope for Amp Env **
-        // The Amp envelope now ignores globalGateTime and starts decaying immediately.
-        // Its length is controlled solely by ampEnv.decay.
-        nodes.vca.gain.cancelScheduledValues(effectiveTime);
-        nodes.vca.gain.setValueAtTime(0, effectiveTime);
-        // Short attack
-        nodes.vca.gain.setTargetAtTime(1, effectiveTime, timeConstant(0.002));
-        // Start decaying immediately after the attack.
-        nodes.vca.gain.setTargetAtTime(0, effectiveTime + 0.002, timeConstant(ampEnv.decay));
-
-
-        // ** Filter and Pitch envelopes still respect the gate for ADS(R) behavior **
-        if (!isLegato) {
-            // FILTER ENV: Trigger only on new notes
-            const applyFilterEnvAttack = (filterParam: AudioParam, baseValue: number) => {
-                filterParam.cancelScheduledValues(effectiveTime);
-                filterParam.setValueAtTime(baseValue, effectiveTime);
-                const peakValue = baseValue + filter.envAmount;
-                filterParam.setTargetAtTime(peakValue, effectiveTime, timeConstant(filterEnv.attack));
-                const sustainValue = baseValue + (filter.envAmount * filterEnv.sustain);
-                filterParam.setTargetAtTime(sustainValue, effectiveTime + filterEnv.attack, timeConstant(filterEnv.decay));
-            };
-            if(isStandard) {
-                applyFilterEnvAttack(nodes.filterNode1.frequency, baseCutoff);
-                if(filter.type.includes('24dB')) applyFilterEnvAttack(nodes.filterNode2.frequency, baseCutoff);
-            }
-
-            // PITCH ENV: Trigger only on new notes
-            if (osc1.sync && oscNode2) {
-                const pitchEnvAmount = osc2.pitchEnvAmount || 0;
-                const baseDetune = osc2.detune;
-                oscNode2.detune.cancelScheduledValues(effectiveTime);
-                oscNode2.detune.setValueAtTime(baseDetune, effectiveTime);
-                const peakDetune = baseDetune + pitchEnvAmount;
-                oscNode2.detune.setTargetAtTime(peakDetune, effectiveTime, timeConstant(filterEnv.attack));
-                const sustainDetune = baseDetune + (pitchEnvAmount * filterEnv.sustain);
-                oscNode2.detune.setTargetAtTime(sustainDetune, effectiveTime + filterEnv.attack, timeConstant(filterEnv.decay));
-            }
-
-        } else if (activeNoteRef.current) {
-            // LEGATO: Cancel the previously scheduled release for filter/pitch envelopes
-            nodes.filterNode1.frequency.cancelScheduledValues(activeNoteRef.current.gateEndTime);
-            nodes.filterNode2.frequency.cancelScheduledValues(activeNoteRef.current.gateEndTime);
-            if (osc1.sync && oscNode2) oscNode2.detune.cancelScheduledValues(activeNoteRef.current.gateEndTime);
-        }
-
-        // --- Schedule RELEASE for FILTER and PITCH only ---
-        // FILTER ENV Release
-        const applyFilterEnvRelease = (filterParam: AudioParam, baseValue: number) => {
-            filterParam.setTargetAtTime(baseValue, gateEndTime, timeConstant(filterEnv.decay));
-        };
-        if(isStandard) {
-            applyFilterEnvRelease(nodes.filterNode1.frequency, baseCutoff);
-            if(filter.type.includes('24dB')) applyFilterEnvRelease(nodes.filterNode2.frequency, baseCutoff);
-        }
-
-        // PITCH ENV Release
-        if (osc1.sync && oscNode2) {
-            oscNode2.detune.setTargetAtTime(osc2.detune, gateEndTime, timeConstant(filterEnv.decay));
-        }
-
         activeNoteRef.current = { gateEndTime };
 
-    }, [scheduleLfoRetrigger]);
+        const { nodes } = synthGraph;
+        
+        // --- Mod Matrix application has been moved to a useEffect for real-time reactivity ---
+        // We only need to set non-modulated / per-note params here.
+
+        // Apply fixed LFO amounts
+        nodes.lfo1_ws1_modGain.gain.setValueAtTime(osc1.wsLfoAmount || 0, effectiveTime);
+        // FIX: Correctly access the gain node for LFO1 -> WS2
+        nodes.lfo1_ws2_modGain.gain.setValueAtTime(osc2.wsLfoAmount || 0, effectiveTime);
+
+        // --- Set Oscillator Parameters ---
+        if (nodes.oscSource1 instanceof OscillatorNode) {
+            nodes.oscSource1.detune.setValueAtTime((osc1.octave * 1200) + osc1.detune + relativeDetune, effectiveTime);
+        }
+        if (nodes.oscSource2 instanceof OscillatorNode) {
+            nodes.oscSource2.detune.setValueAtTime((osc2.octave * 1200) + osc2.detune + relativeDetune, effectiveTime);
+        }
+        
+        // Mixer
+        nodes.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
+        nodes.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
+
+        // Waveshaper Amounts
+        nodes.shaper1InputGain.gain.setValueAtTime(osc1.waveshapeAmount * 5 + 1, effectiveTime);
+        nodes.shaper2InputGain.gain.setValueAtTime(osc2.waveshapeAmount * 5 + 1, effectiveTime);
+
+        // --- Filter Parameters ---
+        const baseCutoff = filter.cutoff;
+        nodes.filterNode1.frequency.setValueAtTime(baseCutoff, effectiveTime);
+        nodes.filterNode2.frequency.setValueAtTime(baseCutoff, effectiveTime);
+        nodes.filterNode1.Q.setValueAtTime(filter.resonance, effectiveTime);
+        nodes.filterNode2.Q.setValueAtTime(filter.resonance, effectiveTime);
+        
+        // Note: Filter types are updated in the useEffect above, not here
+
+        // --- Filter Envelope Triggering ---
+        // 1. Direct Envelope -> Filter Frequency
+        const envAmt = filter.envAmount;
+        const startFreq = baseCutoff;
+        const peakFreq = Math.max(20, Math.min(20000, startFreq + envAmt));
+        const sustainFreq = Math.max(20, Math.min(20000, startFreq + (envAmt * filterEnv.sustain)));
+        
+        const tAttack = effectiveTime + Math.max(0.005, filterEnv.attack);
+        const tDecay = tAttack + Math.max(0.005, filterEnv.decay);
+        
+        [nodes.filterNode1.frequency, nodes.filterNode2.frequency].forEach(param => {
+            param.cancelScheduledValues(effectiveTime);
+            param.setValueAtTime(startFreq, effectiveTime);
+            param.linearRampToValueAtTime(peakFreq, tAttack);
+            param.linearRampToValueAtTime(sustainFreq, tDecay);
+        });
+
+        // 2. Filter Envelope as Modulation Source
+        // We automate the gain of the signal coming from the constant source.
+        const feGain = nodes.filterEnvGain.gain;
+        feGain.cancelScheduledValues(effectiveTime);
+        feGain.setValueAtTime(0, effectiveTime);
+        feGain.linearRampToValueAtTime(1, tAttack); // Peak at 1 (full modulation depth)
+        feGain.linearRampToValueAtTime(filterEnv.sustain, tDecay);
+        
+        // --- Amp Envelope Triggering ---
+        const vcaGain = nodes.vca.gain;
+        vcaGain.cancelScheduledValues(effectiveTime);
+        vcaGain.setValueAtTime(0, effectiveTime);
+        
+        // Simple Attack-Decay/Gate envelope for Amp
+        const ampAttackTime = 0.005;
+        const ampPeakTime = effectiveTime + ampAttackTime;
+        const ampDecayEndTime = ampPeakTime + ampEnv.decay;
+        
+        vcaGain.linearRampToValueAtTime(1, ampPeakTime);
+        
+        // If globalGateTime implies a gate, we should sustain?
+        // But the type `SynthAmpEnvelope` only has `decay`.
+        // We treat it as a percussive AD envelope.
+        vcaGain.exponentialRampToValueAtTime(0.001, ampDecayEndTime);
+        vcaGain.linearRampToValueAtTime(0, ampDecayEndTime + 0.01); // Ensure 0
+
+    }, []);
 
     const loadSampleFromBlob = useCallback(async (blob: Blob, sampleId: number, name?: string) => {
-        const { audioContext: ctx, samples: currentSamples } = stateRef.current;
+        const { audioContext: ctx, samples } = stateRef.current;
         if (!ctx) return;
         try {
             const arrayBuffer = await blob.arrayBuffer();
             const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-            const newSamples = [...currentSamples];
-            const oldSample = newSamples[sampleId];
+            
+            const newSamples = [...samples];
             newSamples[sampleId] = {
-                ...oldSample,
-                name: name || oldSample.name,
+                ...newSamples[sampleId],
                 buffer: audioBuffer,
+                name: name || newSamples[sampleId].name
             };
             dispatch({ type: ActionType.SET_SAMPLES, payload: newSamples });
-        } catch (error) {
-            console.error('Error loading sample:', error);
-            alert('Failed to load audio file. Please use a standard format like WAV or MP3.');
+        } catch (e) {
+            console.error('Error loading sample:', e);
         }
     }, [dispatch]);
-    
-    const cleanupListener = useCallback(() => {
-        if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
-            animationFrameRef.current = null;
-        }
-        sourceNodeRef.current?.disconnect();
-        sourceNodeRef.current = null;
-        analyserRef.current?.disconnect();
-        analyserRef.current = null;
-        streamRef.current?.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-    }, []);
 
     const startRecording = useCallback(async () => {
-        const { isArmed: armed, isRecording: recording, audioContext: ctx, recordingThreshold: threshold } = stateRef.current;
-        if (armed || recording || !ctx) return;
-        dispatch({ type: ActionType.SET_ARMED_STATE, payload: true });
-
+        const { audioContext: ctx, activeSampleId } = stateRef.current;
+        if (!ctx) return;
+ 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             streamRef.current = stream;
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
             
-            const source = ctx.createMediaStreamSource(stream);
-            sourceNodeRef.current = source;
-            
-            const analyser = ctx.createAnalyser();
-            analyser.fftSize = 512;
-            analyser.smoothingTimeConstant = 0.3;
-            analyserRef.current = analyser;
-            source.connect(analyser);
-            
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-            const checkForAudio = () => {
-                if (!analyserRef.current || !streamRef.current) return;
-                
-                analyserRef.current.getByteTimeDomainData(dataArray);
-                const peak = dataArray.reduce((max, current) => Math.max(max, current), 0);
-                const level = Math.abs(peak - 128) / 128;
-
-                if (level > threshold) {
-                    if (animationFrameRef.current) {
-                        cancelAnimationFrame(animationFrameRef.current);
-                        animationFrameRef.current = null;
-                    }
-                    mediaRecorderRef.current = new MediaRecorder(streamRef.current);
-                    mediaRecorderRef.current.ondataavailable = event => {
-                        audioChunksRef.current.push(event.data);
-                    };
-                    mediaRecorderRef.current.onstop = async () => {
-                        if (audioChunksRef.current.length === 0) return;
-                        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-                        audioChunksRef.current = [];
-                        const { audioContext: ctx, activeSampleId: currentActiveSampleId, samples: currentSamples } = stateRef.current;
-                        if (!ctx) return;
-
-                        try {
-                            const arrayBuffer = await audioBlob.arrayBuffer();
-                            const originalBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-                            let peak = 0;
-                            for (let i = 0; i < originalBuffer.numberOfChannels; i++) {
-                                const channelData = originalBuffer.getChannelData(i);
-                                for (let j = 0; j < channelData.length; j++) {
-                                    const amp = Math.abs(channelData[j]);
-                                    if (amp > peak) {
-                                        peak = amp;
-                                    }
-                                }
-                            }
-                            
-                            let finalBuffer = originalBuffer;
-                    
-                            if (peak > 0) {
-                                const gain = 1.0 / peak;
-                    
-                                const offlineCtx = new OfflineAudioContext(
-                                    originalBuffer.numberOfChannels,
-                                    originalBuffer.length,
-                                    originalBuffer.sampleRate
-                                );
-                                const source = offlineCtx.createBufferSource();
-                                source.buffer = originalBuffer;
-                                const gainNode = offlineCtx.createGain();
-                                gainNode.gain.value = gain;
-                                source.connect(gainNode);
-                                gainNode.connect(offlineCtx.destination);
-                                source.start(0);
-                    
-                                finalBuffer = await offlineCtx.startRendering();
-                            }
-                            
-                            const newSamples = [...currentSamples];
-                            const oldSample = newSamples[currentActiveSampleId];
-                            newSamples[currentActiveSampleId] = {
-                                ...oldSample,
-                                buffer: finalBuffer,
-                            };
-                            dispatch({ type: ActionType.SET_SAMPLES, payload: newSamples });
-                    
-                        } catch (error) {
-                            console.error('Error processing recorded sample:', error);
-                            alert('Failed to process recorded audio.');
-                        }
-                    };
-                    mediaRecorderRef.current.start();
-                    dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
-                    dispatch({ type: ActionType.SET_RECORDING_STATE, payload: true });
-                } else {
-                    animationFrameRef.current = requestAnimationFrame(checkForAudio);
+            // LOCAL FLAG to prevent multiple starts in the same session
+            let recordingTriggered = false;
+ 
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
                 }
             };
-            animationFrameRef.current = requestAnimationFrame(checkForAudio);
+ 
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                loadSampleFromBlob(audioBlob, activeSampleId, `Rec ${new Date().toLocaleTimeString()}`);
+                
+                // Cleanup
+                stream.getTracks().forEach(track => track.stop());
+                if (sourceNodeRef.current) {
+                    sourceNodeRef.current.disconnect();
+                    sourceNodeRef.current = null;
+                }
+                if (analyserRef.current) {
+                    analyserRef.current.disconnect();
+                    analyserRef.current = null;
+                }
+                if (animationFrameRef.current) {
+                    cancelAnimationFrame(animationFrameRef.current);
+                    animationFrameRef.current = null;
+                }
+                dispatch({ type: ActionType.SET_RECORDING_STATE, payload: false });
+                dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
+            };
+ 
+            // Input Monitoring for Threshold
+            const source = ctx.createMediaStreamSource(stream);
+            sourceNodeRef.current = source;
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+            analyserRef.current = analyser;
+ 
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            // Set Armed State initially
+            dispatch({ type: ActionType.SET_ARMED_STATE, payload: true });
+            
+            const checkAudioLevel = () => {
+                // If analyzer is disconnected, stop loop
+                if (!analyserRef.current) return;
+                
+                analyser.getByteTimeDomainData(dataArray);
+                
+                let max = 0;
+                for(let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0; 
+                    const y = v - 1;
+                    if (Math.abs(y) > max) max = Math.abs(y);
+                }
+                
+                // Access fresh state from ref to avoid closures with stale state
+                const { recordingThreshold: currentThreshold } = stateRef.current;
+                
+                // Trigger logic:
+                // 1. Must NOT have started locally in this function scope (prevents race conditions)
+                // 2. Check threshold
+                if (!recordingTriggered) {
+                    if (max > currentThreshold) {
+                        recordingTriggered = true;
+                        mediaRecorder.start();
+                        dispatch({ type: ActionType.SET_RECORDING_STATE, payload: true });
+                        dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
+                        
+                        // Once started, we don't need to monitor for trigger anymore
+                        if (animationFrameRef.current) {
+                            cancelAnimationFrame(animationFrameRef.current);
+                            animationFrameRef.current = null;
+                        }
+                    } else {
+                        // Keep checking
+                        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+                    }
+                }
+            };
+            checkAudioLevel();
+ 
         } catch (err) {
-            console.error("Error arming recording:", err);
-            alert("Could not start recording. Please ensure microphone permissions are granted.");
+            console.error("Error accessing microphone", err);
             dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
         }
+    }, [loadSampleFromBlob, dispatch]);
+ 
+    const stopRecording = useCallback(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+        } else {
+             // Stop stream if we were armed but didn't record
+             if (streamRef.current) {
+                 streamRef.current.getTracks().forEach(track => track.stop());
+             }
+             if (animationFrameRef.current) {
+                 cancelAnimationFrame(animationFrameRef.current);
+             }
+             // Cleanup refs manually since onstop won't fire if we didn't record
+             if (sourceNodeRef.current) {
+                sourceNodeRef.current.disconnect();
+                sourceNodeRef.current = null;
+            }
+            if (analyserRef.current) {
+                analyserRef.current.disconnect();
+                analyserRef.current = null;
+            }
 
+            dispatch({ type: ActionType.SET_RECORDING_STATE, payload: false });
+            dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
+        }
     }, [dispatch]);
 
-    const stopRecording = useCallback(() => {
-        const { isArmed: armed, isRecording: recording } = stateRef.current;
-        if (armed && !recording) {
-            dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
-            cleanupListener();
-            return;
-        }
-
-        if (recording && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-            dispatch({ type: ActionType.SET_RECORDING_STATE, payload: false });
-            cleanupListener();
-        }
-    }, [dispatch, cleanupListener]);
-
     const startMasterRecording = useCallback(() => {
-        const { isMasterRecording, audioContext: ctx } = stateRef.current;
-        if (isMasterRecording || !ctx || !masterGainRef.current) return;
-
-        if (!masterDestinationRef.current) {
-            masterDestinationRef.current = ctx.createMediaStreamDestination();
-        }
-        masterGainRef.current.connect(masterDestinationRef.current);
-
-        const recorder = new MediaRecorder(masterDestinationRef.current.stream);
+        const { audioContext: ctx } = stateRef.current;
+        if (!ctx || !masterGainRef.current) return;
+        
+        const dest = ctx.createMediaStreamDestination();
+        masterDestinationRef.current = dest;
+        masterGainRef.current.connect(dest);
+        
+        const recorder = new MediaRecorder(dest.stream);
         masterRecorderRef.current = recorder;
         masterChunksRef.current = [];
-
-        recorder.ondataavailable = (event) => {
-            masterChunksRef.current.push(event.data);
+        
+        recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) masterChunksRef.current.push(e.data);
         };
-
+        
         recorder.onstop = () => {
             const blob = new Blob(masterChunksRef.current, { type: 'audio/wav' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            document.body.appendChild(a);
-            a.style.display = 'none';
             a.href = url;
-            const { bpm } = stateRef.current;
-            const d = new Date();
-            const year = String(d.getFullYear()).slice(-2);
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            const hours = String(d.getHours()).padStart(2, '0');
-            const minutes = String(d.getMinutes()).padStart(2, '0');
-            const seconds = String(d.getSeconds()).padStart(2, '0');
-            
-            const timestamp = `${year}${month}${day}_${hours}${minutes}${seconds}`;
-            const bpmString = `B${Math.round(bpm)}`;
-
-            a.download = `GrvSmp_${timestamp}_${bpmString}.wav`;
+            a.download = `Master - ${new Date().toLocaleTimeString()}.wav`;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
-a.remove();
-            masterGainRef.current?.disconnect(masterDestinationRef.current);
+            
+            masterGainRef.current?.disconnect(dest);
+            dispatch({ type: ActionType.TOGGLE_MASTER_RECORDING }); 
+            dispatch({ type: ActionType.TOGGLE_MASTER_REC_ARMED });
         };
-
+        
         recorder.start();
         dispatch({ type: ActionType.TOGGLE_MASTER_RECORDING });
     }, [dispatch]);
-
+    
     const stopMasterRecording = useCallback(() => {
-        const { isMasterRecording } = stateRef.current;
-        if (!isMasterRecording || !masterRecorderRef.current || masterRecorderRef.current.state !== 'recording') return;
+        if (masterRecorderRef.current && masterRecorderRef.current.state !== 'inactive') {
+            masterRecorderRef.current.stop();
+        }
+    }, []);
 
-        masterRecorderRef.current.stop();
-        dispatch({ type: ActionType.TOGGLE_MASTER_RECORDING });
-    }, [dispatch]);
-
-    return { playSample, playSynthNote, scheduleLfoRetrigger, loadSampleFromBlob, startRecording, stopRecording, startMasterRecording, stopMasterRecording };
+    return { 
+        playSample, 
+        playSynthNote,
+        scheduleLfoRetrigger,
+        loadSampleFromBlob,
+        startRecording,
+        stopRecording,
+        startMasterRecording,
+        stopMasterRecording
+    };
 };

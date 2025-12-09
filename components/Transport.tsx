@@ -1,8 +1,10 @@
+
 import React, { useContext, useState, useRef, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType } from '../types';
 import Fader from './Fader';
 import { useBpmTap } from '../hooks/useBpmTap';
+import { useCpuLoad } from '../hooks/useCpuLoad';
 
 interface TransportProps {
     startMasterRecording: () => void;
@@ -30,6 +32,7 @@ const RATIOS_ROW2 = [
 const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterRecording }) => {
   const { state, dispatch } = useContext(AppContext);
   const { isPlaying, bpm, isMasterRecArmed, isMasterRecording } = state;
+  const cpuLoad = useCpuLoad();
 
   const [bpmMode, setBpmMode] = useState<BpmControlMode>('fader');
   const [baseBpmForRatio, setBaseBpmForRatio] = useState(bpm);
@@ -46,9 +49,11 @@ const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterR
     if (bpmMode === 'ratio') {
       setBaseBpmForRatio(bpm);
     }
-    // Only update the base BPM when the mode is switched to 'ratio'.
-    // Tapping a new tempo will correctly update the base via the handleTap callback.
-  }, [bpmMode, bpm]);
+    // FIX: Removed 'bpm' from dependency array. 
+    // This ensures Base BPM is ONLY set when entering ratio mode, 
+    // not every time the BPM changes (e.g. by clicking a ratio button).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bpmMode]);
 
   const handlePlayToggle = () => {
     if(state.audioContext && state.audioContext.state === 'suspended') {
@@ -191,14 +196,19 @@ const Transport: React.FC<TransportProps> = ({ startMasterRecording, stopMasterR
     }
   };
 
+  const loadPercent = Math.min(100, cpuLoad).toFixed(0);
+  const playButtonClass = isPlaying 
+    ? 'border-pink-400 text-pink-500 bg-white/20' 
+    : 'border-emerald-400 text-emerald-600 bg-white/20';
 
   return (
     <div className="flex items-center space-x-2">
       <button
         onClick={handlePlayToggle}
-        className={`w-16 px-4 py-2 font-bold rounded-md transition-colors ${isPlaying ? 'bg-pink-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+        className={`w-16 px-2 py-2 font-bold rounded-md transition-colors border-2 flex items-center justify-center space-x-1 ${playButtonClass}`}
       >
-        {isPlaying ? 'STOP' : 'PLAY'}
+        <span className="text-sm">{isPlaying ? '■' : '▶'}</span>
+        <span className="text-xs font-mono">{loadPercent}%</span>
       </button>
 
       <div className="flex-grow flex items-center h-10 bg-emerald-100 rounded-lg p-2 shadow-inner">
