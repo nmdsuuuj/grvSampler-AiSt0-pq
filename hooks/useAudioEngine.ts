@@ -1,4 +1,5 @@
 
+
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { ActionType, Sample, PlaybackParams, BiquadFilterType, Synth } from '../types';
@@ -40,6 +41,7 @@ type SynthGraphNodes = {
     formantFilters: BiquadFilterNode[];
     formantOutGain: GainNode;
     vca: GainNode;
+    masterSynthGain: GainNode;
     lfo1: OscillatorNode;
     lfo2: OscillatorNode;
     modGains: { [key: string]: GainNode }; // For LFO -> destination modulation
@@ -269,7 +271,6 @@ export const useAudioEngine = () => {
         osc1Type: string;
         osc2Type: string;
     } | null>(null);
-    const activeNoteRef = useRef<{ gateEndTime: number } | null>(null);
 
     // Refs for LFO visualization
     const lfoAnalysersRef = useRef<{ lfo1: AnalyserNode | null; lfo2: AnalyserNode | null }>({ lfo1: null, lfo2: null });
@@ -388,6 +389,7 @@ export const useAudioEngine = () => {
             const filterNode1 = audioContext.createBiquadFilter();
             const filterNode2 = audioContext.createBiquadFilter();
             const vca = audioContext.createGain();
+            const masterSynthGain = audioContext.createGain();
             const lfo1 = audioContext.createOscillator();
             const lfo2 = audioContext.createOscillator();
             const lfo1_ws1_modGain = audioContext.createGain();
@@ -454,7 +456,8 @@ export const useAudioEngine = () => {
 
             const bankIndex = 3;
             if (bankGainsRef.current[bankIndex]) {
-                vca.connect(bankGainsRef.current[bankIndex]);
+                vca.connect(masterSynthGain);
+                masterSynthGain.connect(bankGainsRef.current[bankIndex]);
             }
 
             // Set initial VCA gain to 0
@@ -521,7 +524,7 @@ export const useAudioEngine = () => {
             synthGraphRef.current = {
                 nodes: {
                     oscSource1, oscSource2, osc1Gain, osc2Gain, shaper1, shaper1InputGain, shaper2, shaper2InputGain,
-                    mixer, fm1Gain, fm2Gain, preFilterGain, filterNode1, filterNode2, vca, lfo1, lfo2, modGains,
+                    mixer, fm1Gain, fm2Gain, preFilterGain, filterNode1, filterNode2, vca, masterSynthGain, lfo1, lfo2, modGains,
                     lfo1_ws1_modGain, lfo1_ws2_modGain,
                     combDelay, combFeedbackGain, combInGain, combOutGain,
                     formantInGain, formantFilters, formantOutGain,
@@ -710,7 +713,7 @@ export const useAudioEngine = () => {
             
             // Disconnect old pitch modulations
             const lfo1PitchGain = oscIndex === 1 ? modGains['lfo1_osc1Pitch'] : modGains['lfo1_osc2Pitch'];
-            const lfo2PitchGain = oscIndex === 1 ? modGains['lfo2_osc1Pitch'] : modGains['lfo2_osc2Pitch'];
+            const lfo2PitchGain = oscIndex === 1 ? modGains['lfo2_osc2Pitch'] : modGains['lfo2_osc2Pitch'];
             const envPitchGain  = oscIndex === 1 ? modGains['filterEnv_osc1Pitch'] : modGains['filterEnv_osc2Pitch'];
 
             if (oldSource instanceof OscillatorNode) {
@@ -840,10 +843,41 @@ export const useAudioEngine = () => {
             comp.release.setValueAtTime(comp.release.value, now);
             comp.release.linearRampToValueAtTime(targetValues.release, now + RAMP_TIME);
         }
+        
+        // Sync master synth gain
+        if (synthGraphRef.current) {
+            const { masterSynthGain } = synthGraphRef.current.nodes;
+            masterSynthGain.gain.cancelScheduledValues(now);
+            masterSynthGain.gain.setValueAtTime(masterSynthGain.gain.value, now);
+            masterSynthGain.gain.linearRampToValueAtTime(synth.masterGain, now + RAMP_TIME);
+        }
 
 
-    }, [samples, bankVolumes, bankPans, bankMutes, bankSolos, masterVolume, audioContext, prevSamples, masterCompressorOn, masterCompressorParams]);
+    }, [samples, bankVolumes, bankPans, bankMutes, bankSolos, masterVolume, audioContext, prevSamples, masterCompressorOn, masterCompressorParams, synth.masterGain]);
     
+    const flushAllSources = useCallback(() => {
+        const { audioContext: ctx } = stateRef.current;
+        if (!ctx) return;
+        const now = ctx.currentTime;
+
+        // Flush sample sources
+        activeSourcesRef.current.forEach(sourceSet => {
+            sourceSet.forEach(source => {
+                try {
+                    source.stop(now);
+                } catch(e) { /* already stopped */ }
+            });
+        });
+        activeSourcesRef.current.clear();
+
+        // Flush synth source by silencing its VCA
+        if (synthGraphRef.current) {
+            const vcaGain = synthGraphRef.current.nodes.vca.gain;
+            vcaGain.cancelScheduledValues(now);
+            vcaGain.setValueAtTime(vcaGain.value, now);
+            vcaGain.linearRampToValueAtTime(0, now + 0.01); // Ramp to 0 in 10ms
+        }
+    }, []);
 
     const playSample = useCallback((sampleId: number, scheduleTime: number, playbackParams?: Partial<PlaybackParams>) => {
         const { audioContext: ctx, samples: currentSamples } = stateRef.current;
@@ -1003,11 +1037,11 @@ export const useAudioEngine = () => {
 
     const scheduleLfoRetrigger = useCallback((lfoIndex: number, time: number) => {
         const { audioContext: ctx, synth: currentSynth, bpm } = stateRef.current;
-        const synthGraph = synthGraphRef.current?.nodes;
+        const synthGraph = synthGraphRef.current;
         if (!ctx || !synthGraph) return;
 
         const lfo = lfoIndex === 0 ? currentSynth.lfo1 : currentSynth.lfo2;
-        const lfoNode = lfoIndex === 0 ? synthGraph.lfo1 : synthGraph.lfo2;
+        const lfoNode = lfoIndex === 0 ? synthGraph.nodes.lfo1 : synthGraph.nodes.lfo2;
 
         try {
             lfoNode.stop(time);
@@ -1026,26 +1060,26 @@ export const useAudioEngine = () => {
         
         // Reconnect to all destinations
         const sourceName = lfoIndex === 0 ? 'lfo1' : 'lfo2';
-        Object.keys(synthGraph.modGains).forEach(key => {
+        Object.keys(synthGraph.nodes.modGains).forEach(key => {
             if (key.startsWith(sourceName)) {
-                newLfoNode.connect(synthGraph.modGains[key]);
+                newLfoNode.connect(synthGraph.nodes.modGains[key]);
             }
         });
 
         if (lfoIndex === 0) {
-            newLfoNode.connect(synthGraph.lfo1_ws1_modGain);
-            newLfoNode.connect(synthGraph.lfo1_ws2_modGain);
-            newLfoNode.connect(synthGraph.lfo1Analyser);
+            newLfoNode.connect(synthGraph.nodes.lfo1_ws1_modGain);
+            newLfoNode.connect(synthGraph.nodes.lfo1_ws2_modGain);
+            newLfoNode.connect(synthGraph.nodes.lfo1Analyser);
         } else {
-            newLfoNode.connect(synthGraph.lfo2Analyser);
+            newLfoNode.connect(synthGraph.nodes.lfo2Analyser);
         }
         
         newLfoNode.start(time);
         
         if (lfoIndex === 0) {
-            synthGraph.lfo1 = newLfoNode;
+            synthGraph.nodes.lfo1 = newLfoNode;
         } else {
-            synthGraph.lfo2 = newLfoNode;
+            synthGraph.nodes.lfo2 = newLfoNode;
         }
     }, []);
 
@@ -1056,18 +1090,51 @@ export const useAudioEngine = () => {
     
         const now = ctx.currentTime;
         const effectiveTime = scheduleTime === 0 ? now : scheduleTime;
-        const { osc1, osc2, oscMix, filter, filterEnv, ampEnv, globalGateTime } = currentSynth;
-        
-        const gateEndTime = effectiveTime + globalGateTime;
-        activeNoteRef.current = { gateEndTime };
-
         const { nodes } = synthGraph;
+    
+        // --- KEY BUG FIX: Force-reset all relevant AudioParams at the start of a note trigger ---
+        // This prevents state from a rapidly preceding note from "bleeding" into the current one,
+        // which was the cause of the unstable, "blurry" sound during sequencer playback.
+        [
+            nodes.oscSource1 instanceof OscillatorNode ? nodes.oscSource1.detune : null,
+            nodes.oscSource2 instanceof OscillatorNode ? nodes.oscSource2.detune : null,
+            nodes.osc1Gain.gain,
+            nodes.osc2Gain.gain,
+            nodes.shaper1InputGain.gain,
+            nodes.shaper2InputGain.gain,
+            nodes.fm1Gain.gain,
+            nodes.fm2Gain.gain,
+            nodes.filterNode1.frequency,
+            nodes.filterNode1.Q,
+            nodes.filterNode2.frequency,
+            nodes.filterNode2.Q,
+            nodes.vca.gain,
+            nodes.filterEnvGain.gain,
+        ].filter(p => p).forEach(p => {
+            p!.cancelScheduledValues(effectiveTime);
+            p!.setValueAtTime(p!.value, effectiveTime);
+        });
+        // The VCA must always start from zero for the envelope to work correctly.
+        nodes.vca.gain.setValueAtTime(0, effectiveTime);
+        
+        const { osc1, osc2, oscMix, filter, filterEnv, masterOctave, ampEnv } = currentSynth;
+        
+        const decayTime = ampEnv.decay;
+        const ampAttackTime = 0.005;
+        const ampPeakTime = effectiveTime + ampAttackTime;
+        const ampDecayEndTime = ampPeakTime + decayTime;
+        const releaseTimeConstant = 0.008; // Short, click-free release
+
+        // LFO Gate retrigger for live keyboard playing
+        [currentSynth.lfo1, currentSynth.lfo2].forEach((lfo, lfoIndex) => {
+            if (lfo.syncTrigger === 'Gate') {
+                scheduleLfoRetrigger(lfoIndex, effectiveTime);
+            }
+        });
 
         // Determine which modWheel value to use for the NOTE ON event.
         const noteOnModWheelValue = params?.modWheel !== undefined ? params.modWheel : currentSynth.modWheel;
-        // The value to return to after the note is the current global value from the synth state.
-        const noteOffModWheelValue = currentSynth.modWheel;
-
+        
         // Apply scheduled, per-note modulation based on the matrix
         const effectiveMatrix = isModMatrixMuted ? {} : synthModMatrix;
         Object.entries(effectiveMatrix).forEach(([source, dests]) => {
@@ -1082,12 +1149,9 @@ export const useAudioEngine = () => {
                     else if (dest.includes('Q')) scaledAmount = amount * 10;
                     
                     const finalAmountNoteOn = scaledAmount * noteOnModWheelValue;
-                    const finalAmountNoteOff = scaledAmount * noteOffModWheelValue;
 
                     gainNode.gain.cancelScheduledValues(effectiveTime);
                     gainNode.gain.setValueAtTime(finalAmountNoteOn, effectiveTime);
-                    // Schedule the modulation to return to the global state's level when the note's gate closes.
-                    gainNode.gain.setValueAtTime(finalAmountNoteOff, gateEndTime);
                 }
             });
         });
@@ -1097,31 +1161,29 @@ export const useAudioEngine = () => {
         
         nodes.lfo1_ws1_modGain.gain.cancelScheduledValues(effectiveTime);
         nodes.lfo1_ws1_modGain.gain.setValueAtTime(((osc1.wsLfoAmount || 0) * 5) * noteOnModWheelValue, effectiveTime);
-        nodes.lfo1_ws1_modGain.gain.setValueAtTime(((osc1.wsLfoAmount || 0) * 5) * noteOffModWheelValue, gateEndTime);
 
         nodes.lfo1_ws2_modGain.gain.cancelScheduledValues(effectiveTime);
         nodes.lfo1_ws2_modGain.gain.setValueAtTime(((osc2.wsLfoAmount || 0) * 5) * noteOnModWheelValue, effectiveTime);
-        nodes.lfo1_ws2_modGain.gain.setValueAtTime(((osc2.wsLfoAmount || 0) * 5) * noteOffModWheelValue, gateEndTime);
+
+        const masterOctaveOffset = (masterOctave || 0) * 1200;
 
         if (nodes.oscSource1 instanceof OscillatorNode) {
-            nodes.oscSource1.detune.setValueAtTime((osc1.octave * 1200) + osc1.detune + relativeDetune, effectiveTime);
+            nodes.oscSource1.detune.setValueAtTime((osc1.octave * 1200) + osc1.detune + relativeDetune + masterOctaveOffset, effectiveTime);
         }
         if (nodes.oscSource2 instanceof OscillatorNode) {
-            nodes.oscSource2.detune.setValueAtTime((osc2.octave * 1200) + osc2.detune + relativeDetune, effectiveTime);
+            nodes.oscSource2.detune.setValueAtTime((osc2.octave * 1200) + osc2.detune + relativeDetune + masterOctaveOffset, effectiveTime);
         }
         
         nodes.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
         nodes.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
-        // FIX: The .setValueAtTime method must be called on the .gain AudioParam of a GainNode, not the node itself. This fixes errors on this and the following line.
         nodes.shaper1InputGain.gain.setValueAtTime(osc1.waveshapeAmount * 5 + 1, effectiveTime);
         nodes.shaper2InputGain.gain.setValueAtTime(osc2.waveshapeAmount * 5 + 1, effectiveTime);
 
         const baseCutoff = filter.cutoff;
-        nodes.filterNode1.frequency.setValueAtTime(baseCutoff, effectiveTime);
-        nodes.filterNode2.frequency.setValueAtTime(baseCutoff, effectiveTime);
         nodes.filterNode1.Q.setValueAtTime(filter.resonance, effectiveTime);
         nodes.filterNode2.Q.setValueAtTime(filter.resonance, effectiveTime);
         
+        // --- Envelopes ---
         const envAmt = filter.envAmount;
         const startFreq = baseCutoff;
         const peakFreq = Math.max(20, Math.min(20000, startFreq + envAmt));
@@ -1129,30 +1191,31 @@ export const useAudioEngine = () => {
         const tAttack = effectiveTime + Math.max(0.005, filterEnv.attack);
         const tDecay = tAttack + Math.max(0.005, filterEnv.decay);
         
+        // Filter Envelope on Cutoff
         [nodes.filterNode1.frequency, nodes.filterNode2.frequency].forEach(param => {
             param.cancelScheduledValues(effectiveTime);
             param.setValueAtTime(startFreq, effectiveTime);
             param.linearRampToValueAtTime(peakFreq, tAttack);
             param.linearRampToValueAtTime(sustainFreq, tDecay);
+            param.setTargetAtTime(startFreq, ampDecayEndTime, releaseTimeConstant);
         });
 
+        // Filter Envelope as Modulation Source
         const feGain = nodes.filterEnvGain.gain;
         feGain.cancelScheduledValues(effectiveTime);
         feGain.setValueAtTime(0, effectiveTime);
         feGain.linearRampToValueAtTime(1, tAttack);
         feGain.linearRampToValueAtTime(filterEnv.sustain, tDecay);
+        feGain.setTargetAtTime(0, ampDecayEndTime, releaseTimeConstant);
         
+        // Amp Envelope (VCA)
         const vcaGain = nodes.vca.gain;
         vcaGain.cancelScheduledValues(effectiveTime);
         vcaGain.setValueAtTime(0, effectiveTime);
-        const ampAttackTime = 0.005;
-        const ampPeakTime = effectiveTime + ampAttackTime;
-        const ampDecayEndTime = ampPeakTime + ampEnv.decay;
         vcaGain.linearRampToValueAtTime(1, ampPeakTime);
-        vcaGain.exponentialRampToValueAtTime(0.001, ampDecayEndTime);
-        vcaGain.linearRampToValueAtTime(0, ampDecayEndTime + 0.01);
+        vcaGain.setTargetAtTime(0.0001, ampDecayEndTime, releaseTimeConstant);
 
-    }, []);
+    }, [scheduleLfoRetrigger]);
 
     const loadSampleFromBlob = useCallback(async (blob: Blob, sampleId: number, name?: string) => {
         const { audioContext: ctx, samples } = stateRef.current;
@@ -1160,6 +1223,28 @@ export const useAudioEngine = () => {
         try {
             const arrayBuffer = await blob.arrayBuffer();
             const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    
+            // --- START OF NORMALIZATION LOGIC ---
+            let max = 0;
+            for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
+                const channelData = audioBuffer.getChannelData(i);
+                for (let j = 0; j < channelData.length; j++) {
+                    if (Math.abs(channelData[j]) > max) {
+                        max = Math.abs(channelData[j]);
+                    }
+                }
+            }
+    
+            if (max > 0) {
+                const gain = 1.0 / max;
+                for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
+                    const channelData = audioBuffer.getChannelData(i);
+                    for (let j = 0; j < channelData.length; j++) {
+                        channelData[j] *= gain;
+                    }
+                }
+            }
+            // --- END OF NORMALIZATION LOGIC ---
             
             const newSamples = [...samples];
             newSamples[sampleId] = {
@@ -1340,6 +1425,7 @@ export const useAudioEngine = () => {
         stopRecording,
         startMasterRecording,
         stopMasterRecording,
+        flushAllSources,
         lfoAnalysers: lfoAnalysersRef
     };
 };

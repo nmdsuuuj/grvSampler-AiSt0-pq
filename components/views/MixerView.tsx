@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useEffect } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, MasterCompressorParams } from '../../types';
@@ -5,13 +6,15 @@ import Fader from '../Fader';
 import { TOTAL_BANKS } from '../../constants';
 import CpuMeter from '../CpuMeter';
 import Pad from '../Pad';
+import { SubTab } from '../../App';
 
 interface MixerViewProps {
     startMasterRecording: () => void;
     stopMasterRecording: () => void;
+    setSubTabs: (tabs: SubTab[]) => void;
 }
 
-const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterRecording }) => {
+const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterRecording, setSubTabs }) => {
     const { state, dispatch } = useContext(AppContext);
     const { 
         bankVolumes, bankPans, bankMutes, bankSolos, 
@@ -22,6 +25,14 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
     } = state;
 
     const [viewMode, setViewMode] = useState<'mixer' | 'fx'>('mixer');
+
+    useEffect(() => {
+        setSubTabs([
+            { label: 'Mixer', onClick: () => setViewMode('mixer'), isActive: viewMode === 'mixer' },
+            { label: 'FX', onClick: () => setViewMode('fx'), isActive: viewMode === 'fx' }
+        ]);
+    }, [viewMode, setSubTabs]);
+
 
     // State for compressor snapshots
     const [snapshotMode, setSnapshotMode] = useState<'LOAD' | 'SAVE'>('LOAD');
@@ -143,7 +154,7 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
                         </div>
                         <div className="h-full w-full flex-grow">
                             <Fader
-                                label={`Bank ${String.fromCharCode(65 + i)}`}
+                                label={i === 3 ? 'SYNTH' : `Bank ${String.fromCharCode(65 + i)}`}
                                 value={bankVolumes[i]}
                                 onChange={(val) => handleVolumeChange(i, val)}
                                 min={0}
@@ -262,25 +273,6 @@ const MixerView: React.FC<MixerViewProps> = ({ startMasterRecording, stopMasterR
 
     return (
         <div className="flex flex-col h-full p-2">
-            <div className="flex justify-between items-center flex-shrink-0 mb-4 px-2">
-                 <h2 className="text-xl font-bold">
-                    {viewMode === 'mixer' ? 'Channel Mixer' : 'Master FX'}
-                </h2>
-                <div className="flex space-x-1 p-1 bg-emerald-200 rounded-lg">
-                    <button 
-                        onClick={() => setViewMode('mixer')}
-                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-colors ${viewMode === 'mixer' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
-                    >
-                        Mixer
-                    </button>
-                    <button 
-                        onClick={() => setViewMode('fx')}
-                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-colors ${viewMode === 'fx' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
-                    >
-                        FX
-                    </button>
-                </div>
-            </div>
             <div className="flex-grow flex bg-white shadow-md p-2 rounded-lg overflow-hidden">
                 {viewMode === 'mixer' ? renderMixer() : renderFx()}
             </div>

@@ -1,6 +1,28 @@
+
 # Project Roadmap
 
 This document outlines the future development plan for the Groove Sampler. While the current version focuses on a powerful sequencing and groove engine, the next phase aims to elevate it into a complete beat-making station by adding dedicated mixing, mastering, and final export capabilities.
+
+## Phase 1: UI & Ergonomics Refactor (In Progress)
+
+### 1. Navigation Consolidation
+
+#### **Overview**
+A major refactor of the application's core layout to improve ergonomics, especially on mobile devices.
+
+#### **UI/UX**
+*   **Move Navigation to Bottom:** All primary navigation tabs (`SAMPLE`, `SEQ`, `SYNTH`, etc.) and secondary, view-specific tabs (`OSC/FLT`, `PART/P.L`, etc.) will be moved to the bottom of the screen, just above the global performance keyboard.
+*   **Rationale:** This places all critical interaction points within easy reach of the thumb, enabling more comfortable and efficient one-handed use on mobile phones.
+
+### 2. Bank & Track Renaming
+
+#### **Overview**
+Clarify the roles of the different tracks within the sequencer.
+
+#### **UI/UX**
+*   **"Bank D" becomes "SYNTH":** The fourth track, which is a dedicated synthesizer, will be explicitly labeled "SYNTH" throughout the UI (in the bank selector, mixer, etc.) instead of "D".
+*   **Rationale:** This removes ambiguity and makes the distinction between the three sampler tracks (A, B, C) and the one synthesizer track immediately obvious to new users.
+
 
 ## Phase 2: The Mixing & Mastering Update
 
@@ -12,7 +34,7 @@ A new "MIXER" tab will be introduced to provide intuitive, professional-style co
 #### **UI/UX**
 *   **New "MIXER" Tab:** Will be added as a fifth primary tab alongside "SEQ", "SAMPLE", "GROOVE", and "PROJECT".
 *   **Channel Strips:**
-    *   Four vertical channel strips, one for each sample bank (A, B, C, D).
+    *   Four vertical channel strips, one for each sample bank (A, B, C, SYNTH).
     *   Each strip will feature:
         *   **Volume Fader:** For intuitive control over each bank's level.
         *   **Pan Knob:** To position each bank in the stereo field.

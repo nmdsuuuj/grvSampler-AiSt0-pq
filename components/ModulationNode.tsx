@@ -1,11 +1,13 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
 interface ModulationNodeProps {
     value: number; // -1 to 1
     onChange: (value: number) => void;
+    label: string;
 }
 
-const ModulationNode: React.FC<ModulationNodeProps> = ({ value, onChange }) => {
+const ModulationNode: React.FC<ModulationNodeProps> = ({ value, onChange, label }) => {
     const nodeRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
     const dragStartRef = useRef<{ y: number; value: number } | null>(null);
@@ -44,6 +46,8 @@ const ModulationNode: React.FC<ModulationNodeProps> = ({ value, onChange }) => {
     }, [handleValueChange]);
 
     const handleTouchMove = useCallback((e: TouchEvent) => {
+        // Prevent default scroll behavior during drag
+        e.preventDefault();
         handleValueChange(e.touches[0].clientY);
     }, [handleValueChange]);
 
@@ -78,18 +82,20 @@ const ModulationNode: React.FC<ModulationNodeProps> = ({ value, onChange }) => {
 
     const handleSingleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
         if (dragStartRef.current && Math.abs(e.changedTouches[0].clientY - dragStartRef.current.y) > 5) {
-             // It was a drag, not a tap
+            // It was a drag, not a tap, so don't trigger reset logic
             return;
         }
 
         if (tapTimeout.current) {
+            // This is the second tap, so it's a double tap.
             clearTimeout(tapTimeout.current);
             tapTimeout.current = null;
             handleReset();
-            e.preventDefault();
+            e.preventDefault(); // Prevent zoom.
         } else {
+            // This is the first tap. Set a timeout to wait for a potential second tap.
             tapTimeout.current = window.setTimeout(() => {
-                tapTimeout.current = null;
+                tapTimeout.current = null; // Timeout expired, it was a single tap.
             }, 300);
         }
     };
@@ -100,7 +106,7 @@ const ModulationNode: React.FC<ModulationNodeProps> = ({ value, onChange }) => {
     return (
         <div
             ref={nodeRef}
-            className="w-5 h-10 bg-emerald-100 rounded-sm cursor-ns-resize relative overflow-hidden touch-none"
+            className="w-full h-16 bg-emerald-100 rounded-sm cursor-ns-resize relative overflow-hidden touch-none flex flex-col items-center justify-center"
             onMouseDown={handleMouseDown}
             onTouchStart={handleTouchStart}
             onDoubleClick={handleDoubleClick}
@@ -114,6 +120,12 @@ const ModulationNode: React.FC<ModulationNodeProps> = ({ value, onChange }) => {
                 }}
             />
             <div className="absolute inset-0 border border-emerald-200 rounded-sm" />
+            
+            {/* Overlay for Text */}
+            <div className="relative z-10 flex flex-col items-center justify-center pointer-events-none text-slate-800 select-none drop-shadow">
+                 <span className="text-[10px] font-bold leading-tight truncate">{label}</span>
+                 <span className="text-xs font-mono leading-tight">{(value * 100).toFixed(0)}</span>
+            </div>
         </div>
     );
 };

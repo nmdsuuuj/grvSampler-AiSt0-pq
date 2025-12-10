@@ -5,9 +5,9 @@ import { ActionType, Pattern, LockableParam, Sample, PlaybackParams } from '../.
 import Pad from '../Pad';
 import { PADS_PER_BANK, STEPS_PER_PART, LOOP_PRESETS, PATTERNS_PER_BANK, STEPS_PER_PATTERN } from '../../constants';
 import Fader from '../Fader';
-import BankSelector from '../BankSelector';
 import SCALES from '../../scales';
 import TEMPLATES, { Template } from '../../templates';
+import { SubTab } from '../../App';
 
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -36,6 +36,7 @@ const FADER_PARAMS = SAMPLE_PARAMS.filter(p => !['pitch', 'volume', 'detune'].in
 interface SeqViewProps {
     playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
     playSynthNote: (detune: number, time?: number) => void;
+    setSubTabs: (tabs: SubTab[]) => void;
 }
 
 const ALL_RATE_VALUES = [32, 27, 24, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4, 3];
@@ -203,10 +204,9 @@ const TemplateModal: React.FC<{
 };
 
 
-const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
+const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote, setSubTabs }) => {
     const { state, dispatch } = useContext(AppContext);
     const [patternViewBank, setPatternViewBank] = useState(0);
-    const [selectedStep, setSelectedStep] = useState<number>(0);
     const [paramGridMode, setParamGridMode] = useState<ParamGridMode>('select');
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [copyPasteScope, setCopyPasteScope] = useState<CopyPasteScope>('lane');
@@ -224,7 +224,28 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
         activeScale,
         seqMode,
         synth,
+        selectedSeqStep,
     } = state;
+
+    useEffect(() => {
+        setSubTabs([
+            { label: 'PART', onClick: () => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'PART' }), isActive: seqMode === 'PART' },
+            { label: 'P.L', onClick: () => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'PARAM' }), isActive: seqMode === 'PARAM' },
+            { label: 'REC', onClick: () => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'REC' }), isActive: seqMode === 'REC', isSpecial: true }
+        ]);
+    }, [seqMode, dispatch, setSubTabs]);
+
+    useEffect(() => {
+        // Clear selection when view is not interactive for step input
+        if (seqMode === 'REC') {
+            dispatch({ type: ActionType.SET_SELECTED_SEQ_STEP, payload: null });
+        }
+        // Also clear on unmount
+        return () => {
+            dispatch({ type: ActionType.SET_SELECTED_SEQ_STEP, payload: null });
+        };
+    }, [seqMode, dispatch]);
+
 
     // --- Smart Scope Selector Logic ---
     const prevSampleIdRef = useRef(activeSampleId);
@@ -255,6 +276,18 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
     const handleStepToggle = (sampleId: number, step: number) => {
         if (!activePattern) return;
         dispatch({ type: ActionType.TOGGLE_STEP, payload: { patternId: activePattern.id, sampleId, step } });
+    };
+
+    const handleStepClick = (sampleId: number, stepIndex: number) => {
+        if (seqMode === 'PART') {
+            handleStepToggle(sampleId, stepIndex);
+            dispatch({ type: ActionType.SET_SELECTED_SEQ_STEP, payload: stepIndex });
+        } else if (seqMode === 'PARAM') {
+            dispatch({ type: ActionType.SET_SELECTED_SEQ_STEP, payload: stepIndex });
+            if (paramGridMode === 'selectAndGate') {
+                handleStepToggle(sampleId, stepIndex);
+            }
+        }
     };
 
     const handleSamplePadClick = (id: number) => {
@@ -303,24 +336,17 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
     };
 
     const handleParamChange = (param: LockableParam, value: number) => {
-        if (selectedStep === null || !activePattern) return;
+        if (selectedSeqStep === null || !activePattern) return;
         dispatch({
             type: ActionType.UPDATE_PARAM_LOCK,
             payload: {
                 patternId: activePattern.id,
                 sampleId: activeSampleId,
                 param: param,
-                step: selectedStep,
+                step: selectedSeqStep,
                 value: value,
             },
         });
-    };
-    
-    const handleParamStepClick = (stepIndex: number) => {
-        setSelectedStep(stepIndex);
-        if (paramGridMode === 'selectAndGate') {
-            handleStepToggle(activeSampleId, stepIndex);
-        }
     };
 
     const handleApplyTemplate = (template: Template) => {
@@ -416,27 +442,6 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
     return (
         <div className="flex flex-col h-full p-1 space-y-1">
             <TemplateModal isOpen={isTemplateModalOpen} onClose={() => setIsTemplateModalOpen(false)} onSelect={handleApplyTemplate} />
-
-            <div className="flex items-center justify-center space-x-1 p-1 bg-emerald-200 rounded-lg">
-                <button 
-                    onClick={() => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'PART' })}
-                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${seqMode === 'PART' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
-                >
-                    AB
-                </button>
-                 <button 
-                    onClick={() => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'PARAM' })}
-                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${seqMode === 'PARAM' ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
-                >
-                    P.L
-                </button>
-                 <button 
-                    onClick={() => dispatch({ type: ActionType.SET_SEQ_MODE, payload: 'REC' })}
-                    className={`flex-grow py-1.5 text-sm font-bold rounded-md transition-colors ${seqMode === 'REC' ? 'bg-rose-500 text-white shadow' : 'bg-transparent text-slate-600'}`}
-                >
-                    REC
-                </button>
-            </div>
             
             {seqMode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} updatePlaybackScale={updatePlaybackScale} playbackState={playbackState} />}
             {seqMode === 'PARAM' && (
@@ -445,8 +450,8 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                          <div className="grid grid-cols-3 gap-x-2 gap-y-1">
                             {SYNTH_PARAMS.map(p => {
                                 const lockedValue = p.value === 'velocity' || p.value === 'detune'
-                                    ? activePattern.steps[sampleId]?.[selectedStep]?.[p.value]
-                                    : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedStep];
+                                    ? activePattern.steps[sampleId]?.[selectedSeqStep ?? 0]?.[p.value]
+                                    : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedSeqStep ?? 0];
                                 
                                 let displayValue: number;
                                 let defaultValue: number;
@@ -485,8 +490,8 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                          <div className="grid grid-cols-3 gap-x-2 gap-y-1">
                             {FADER_PARAMS.map(p => {
                                 const lockedValue = (p.value === 'velocity')
-                                    ? activePattern.steps[sampleId]?.[selectedStep]?.[p.value]
-                                    : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedStep];
+                                    ? activePattern.steps[sampleId]?.[selectedSeqStep ?? 0]?.[p.value]
+                                    : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedSeqStep ?? 0];
                                 
                                 let displayValue: number;
                                 if (lockedValue !== null && lockedValue !== undefined) {
@@ -537,6 +542,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                         const isStepOn = stepInfo?.active;
                         const isCurrentStep = currentStep === stepIndex;
                         const isPartB = stepIndex >= STEPS_PER_PART;
+                        const isSelected = selectedSeqStep === stepIndex;
                         
                         if (seqMode === 'PART' || seqMode === 'REC') {
                             let colorClasses;
@@ -553,12 +559,13 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                                 colorClasses = isStepOn ? 'bg-lime-300 brightness-125' : 'bg-lime-400/50';
                             }
                             const baseClasses = 'w-full h-7 rounded-sm transition-colors';
+                            const selectedClass = isSelected ? 'ring-2 ring-sky-400 ring-offset-1' : '';
 
                             return (
                                 <button
                                     key={stepIndex}
-                                    onClick={() => handleStepToggle(sampleId, stepIndex)}
-                                    className={`${baseClasses} ${colorClasses}`}
+                                    onClick={() => handleStepClick(sampleId, stepIndex)}
+                                    className={`${baseClasses} ${colorClasses} ${selectedClass}`}
                                     disabled={seqMode === 'REC'}
                                 />
                             );
@@ -566,14 +573,13 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                             let bgClass = isPartB ? 'bg-emerald-100' : 'bg-emerald-200';
                             if (isCurrentStep) bgClass = 'bg-lime-400/50';
                             
-                            const isSelected = selectedStep === stepIndex;
                             const noteOnClass = isStepOn ? `border-2 ${isSynthTrack ? 'border-cyan-500' : 'border-pink-400'}` : 'border-2 border-transparent';
                             const selectedClass = isSelected ? 'ring-2 ring-sky-400 ring-offset-1' : '';
 
                             return (
                                 <button
                                     key={stepIndex}
-                                    onClick={() => handleParamStepClick(stepIndex)}
+                                    onClick={() => handleStepClick(sampleId, stepIndex)}
                                     className={`w-full h-7 rounded-sm transition-colors ${bgClass} ${noteOnClass} ${selectedClass}`}
                                 />
                             );
@@ -613,11 +619,11 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
             {/* Bottom controls */}
             <div className="grid grid-cols-2 gap-1">
                 <div className="bg-white shadow-md p-1 rounded-lg flex flex-col space-y-1">
-                     <BankSelector type="sample" />
-                    <div className="grid grid-cols-4 gap-2">
-                        {Array.from({ length: PADS_PER_BANK }).map((_, i) => (
-                             <Pad key={i} id={sampleBankOffset + i} label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleBankOffset + i} hasContent={!!samples[sampleBankOffset + i].buffer || (activeSampleBank === 3)} padType="sample" />
-                        ))}
+                    <div className="grid grid-cols-4 gap-2 pt-8">
+                        {Array.from({ length: PADS_PER_BANK }).map((_, i) => {
+                             const bankLabel = activeSampleBank === 3 ? 'SYNTH' : String.fromCharCode(65 + activeSampleBank);
+                             return <Pad key={i} id={sampleBankOffset + i} label={`${bankLabel}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleBankOffset + i} hasContent={!!samples[sampleBankOffset + i].buffer || (activeSampleBank === 3)} padType="sample" />
+                        })}
                     </div>
                 </div>
                  <div className="bg-white shadow-md p-1 rounded-lg flex flex-col space-y-1">

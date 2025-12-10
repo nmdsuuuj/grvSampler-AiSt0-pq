@@ -6,7 +6,6 @@ import { ActionType } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
 import { GROOVE_PATTERNS, GROOVES_PER_BANK, TOTAL_BANKS, PADS_PER_BANK, PATTERNS_PER_BANK } from '../../constants';
-import BankSelector from '../BankSelector';
 
 const GrooveView: React.FC = () => {
     const { state, dispatch } = useContext(AppContext);
@@ -114,8 +113,7 @@ const GrooveView: React.FC = () => {
 
             {/* Bottom controls: Bank and Pattern Selectors */}
             <div className="grid grid-cols-2 gap-1 flex-shrink-0">
-                <div className="bg-white shadow-md p-1 rounded-lg flex flex-col space-y-1">
-                     <BankSelector type="sample" />
+                <div className="bg-white shadow-md p-1 rounded-lg flex flex-col space-y-1 pt-9">
                 </div>
                  <div className="bg-white shadow-md p-1 rounded-lg flex flex-col space-y-1">
                     <div className="flex justify-center space-x-1">

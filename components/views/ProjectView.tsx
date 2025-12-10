@@ -1,41 +1,45 @@
-
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { AppContext } from '../../context/AppContext';
-import { db, Project, StorableSample, SampleKit, BankPreset } from '../../db';
+import { db, Project, StorableSample, SampleKit, BankPreset, audioBufferToStorable, storableToAudioBuffer } from '../../db';
 import { ActionType, AppState, Sample, BankPresetData } from '../../types';
-import { PADS_PER_BANK, TOTAL_SAMPLES } from '../../constants';
+import { PADS_PER_BANK } from '../../constants';
 
-const audioBufferToStorable = (buffer: AudioBuffer | null): StorableSample['bufferData'] => {
-    if (!buffer) return null;
-    const channelData: Float32Array[] = [];
-    for (let i = 0; i < buffer.numberOfChannels; i++) {
-        channelData.push(buffer.getChannelData(i));
-    }
-    return {
-        channelData,
-        sampleRate: buffer.sampleRate,
-        length: buffer.length,
-        numberOfChannels: buffer.numberOfChannels,
-    };
+// FIX: Helper to convert an array of Samples to StorableSamples for DB persistence.
+const samplesToStorableArray = (samplesToConvert: Sample[]): StorableSample[] => {
+    return samplesToConvert.map(s => ({
+        id: s.id,
+        name: s.name,
+        volume: s.volume,
+        pitch: s.pitch,
+        start: s.start,
+        end: s.end,
+        decay: s.decay,
+        loop: s.loop,
+        playbackMode: s.playbackMode,
+        lpFreq: s.lpFreq,
+        hpFreq: s.hpFreq,
+        bufferData: audioBufferToStorable(s.buffer)
+    }));
 };
 
-const storableToAudioBuffer = (storable: StorableSample['bufferData'] | null, audioContext: AudioContext): AudioBuffer | null => {
-    if (!storable) return null;
-    try {
-        const buffer = audioContext.createBuffer(
-            storable.numberOfChannels,
-            storable.length,
-            storable.sampleRate
-        );
-        for (let i = 0; i < storable.numberOfChannels; i++) {
-            buffer.copyToChannel(storable.channelData[i], i);
-        }
-        return buffer;
-    } catch (e) {
-        console.error("Error creating AudioBuffer from stored data:", e);
-        return null;
-    }
+// FIX: Helper to convert an array of StorableSamples from DB back to Samples with AudioBuffers.
+const storableToSamplesArray = (storableSamples: StorableSample[], ctx: AudioContext): Sample[] => {
+    return storableSamples.map(s => ({
+        id: s.id,
+        name: s.name,
+        volume: s.volume,
+        pitch: s.pitch,
+        start: s.start,
+        end: s.end,
+        decay: s.decay,
+        loop: s.loop,
+        playbackMode: s.playbackMode,
+        lpFreq: s.lpFreq,
+        hpFreq: s.hpFreq,
+        buffer: storableToAudioBuffer(s.bufferData, ctx),
+    }));
 };
+
 
 const ManualModal = ({ onClose }: { onClose: () => void }) => {
     const manualContent = `
@@ -140,10 +144,13 @@ PCキーボードの下2段は、SEQ画面で選択されたサンプルを演�
     );
 };
 
+interface ProjectViewProps {
+    flushAllSources: () => void;
+}
 
-const ProjectView: React.FC = () => {
+const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
     const { state, dispatch } = useContext(AppContext);
-    const { audioContext, samples, activeSampleBank, activePatternIds, patterns } = state;
+    const { audioContext, samples, activeSampleBank, activePatternIds, patterns, isPlaying } = state;
 
     const [projects, setProjects] = useState<Project[]>([]);
     const [projectName, setProjectName] = useState('New Project');
@@ -174,22 +181,6 @@ const ProjectView: React.FC = () => {
         refreshBankPresets();
     }, [refreshProjects, refreshSampleKits, refreshBankPresets]);
 
-    const samplesToStorable = (samplesToStore: Sample[]): StorableSample[] => {
-        return samplesToStore.map(s => ({
-            ...s,
-            buffer: undefined,
-            bufferData: audioBufferToStorable(s.buffer),
-        }));
-    };
-
-    const storableToSamples = useCallback((storableSamples: StorableSample[]): Sample[] => {
-        if (!audioContext) return [];
-        return storableSamples.map(s => ({
-            ...s,
-            buffer: storableToAudioBuffer(s.bufferData, audioContext),
-        }));
-    }, [audioContext]);
-
     const handleSaveProject = async () => {
         if (!projectName.trim()) {
             alert('プロジェクト名を入力してください。');
@@ -197,22 +188,19 @@ const ProjectView: React.FC = () => {
         }
         const stateToSave = { ...state };
         // Exclude non-serializable or transient properties
-        delete (stateToSave as Partial<AppState>).audioContext;
-        delete (stateToSave as Partial<AppState>).isInitialized;
-        delete (stateToSave as Partial<AppState>).isPlaying;
-        delete (stateToSave as Partial<AppState>).isRecording;
-        delete (stateToSave as Partial<AppState>).isArmed;
-        delete (stateToSave as Partial<AppState>).isMasterRecording;
-        delete (stateToSave as Partial<AppState>).isMasterRecArmed;
-        delete (stateToSave as Partial<AppState>).currentSteps;
-        delete (stateToSave as Partial<AppState>).samples;
-        delete (stateToSave as Partial<AppState>).grooves;
+        const propertiesToDelete: (keyof AppState)[] = [
+            'audioContext', 'isInitialized', 'isPlaying', 'isRecording', 
+            'isArmed', 'currentSteps', 'samples', 'grooves', 'isLoading',
+            'isMasterRecording', 'isMasterRecArmed'
+        ];
+        propertiesToDelete.forEach(prop => delete (stateToSave as Partial<AppState>)[prop]);
         
         const project: Project = {
             name: projectName.trim(),
             createdAt: new Date(),
             state: stateToSave,
-            samples: samplesToStorable(state.samples),
+// FIX: Correctly convert the array of Samples to an array of StorableSamples.
+            samples: samplesToStorableArray(state.samples),
         };
         await db.projects.add(project);
         alert(`プロジェクト「${project.name}」を保存しました。`);
@@ -222,12 +210,16 @@ const ProjectView: React.FC = () => {
     const handleLoadProject = useCallback(async (projectId: number) => {
         const project = await db.projects.get(projectId);
         if (project && audioContext) {
-            const loadedSamples = storableToSamples(project.samples);
+            if (isPlaying) {
+                flushAllSources();
+            }
+// FIX: Correctly convert the array of StorableSamples back to an array of Samples.
+            const loadedSamples = storableToSamplesArray(project.samples, audioContext);
             const loadedState = { ...project.state, samples: loadedSamples };
             dispatch({ type: ActionType.LOAD_PROJECT_STATE, payload: loadedState });
             alert(`プロジェクト「${project.name}」を読み込みました。`);
         }
-    }, [audioContext, dispatch, storableToSamples]);
+    }, [audioContext, dispatch, isPlaying, flushAllSources]);
 
     const handleDeleteProject = async (projectId: number) => {
         if (window.confirm('このプロジェクトを削除しますか？この操作は元に戻せません。')) {
@@ -244,7 +236,8 @@ const ProjectView: React.FC = () => {
         const kit: SampleKit = {
             name: sampleKitName.trim(),
             createdAt: new Date(),
-            samples: samplesToStorable(samples),
+// FIX: Correctly convert the array of Samples to an array of StorableSamples.
+            samples: samplesToStorableArray(samples),
         };
         await db.sampleKits.add(kit);
         alert(`サンプルキット「${kit.name}」を保存しました。`);
@@ -253,12 +246,13 @@ const ProjectView: React.FC = () => {
 
     const handleLoadSampleKit = useCallback(async (kitId: number) => {
         const kit = await db.sampleKits.get(kitId);
-        if (kit) {
-            const loadedSamples = storableToSamples(kit.samples);
+        if (kit && audioContext) {
+// FIX: Correctly convert the array of StorableSamples back to an array of Samples.
+            const loadedSamples = storableToSamplesArray(kit.samples, audioContext);
             dispatch({ type: ActionType.SET_SAMPLES, payload: loadedSamples });
             alert(`サンプルキット「${kit.name}」を読み込みました。`);
         }
-    }, [dispatch, storableToSamples]);
+    }, [dispatch, audioContext]);
 
     const handleDeleteSampleKit = async (kitId: number) => {
         if (window.confirm('このサンプルキットを削除しますか？')) {
@@ -291,7 +285,8 @@ const ProjectView: React.FC = () => {
         const preset: BankPreset = {
             name: bankPresetName.trim(),
             createdAt: new Date(),
-            samples: samplesToStorable(bankSamples),
+// FIX: Correctly convert the array of Samples to an array of StorableSamples.
+            samples: samplesToStorableArray(bankSamples),
             sequences: JSON.parse(JSON.stringify(bankSequences)),
             paramLocks: JSON.parse(JSON.stringify(bankParamLocks)),
             grooveId: pattern.grooveIds[activeSampleBank],
@@ -308,7 +303,8 @@ const ProjectView: React.FC = () => {
         const preset = await db.bankPresets.get(presetId);
         if (!preset) return;
 
-        const loadedSamples = storableToSamples(preset.samples);
+// FIX: Correctly convert the array of StorableSamples back to an array of Samples.
+        const loadedSamples = storableToSamplesArray(preset.samples, audioContext);
 
         const presetData: BankPresetData = {
             samples: loadedSamples,
@@ -325,7 +321,7 @@ const ProjectView: React.FC = () => {
 
         alert(`プリセット「${preset.name}」をバンク ${String.fromCharCode(65 + activeSampleBank)} に読み込みました。`);
 
-    }, [audioContext, activeSampleBank, dispatch, storableToSamples]);
+    }, [audioContext, activeSampleBank, dispatch]);
     
     const handleDeleteBankPreset = async (presetId: number) => {
         if (window.confirm('このバンクプリセットを削除しますか？')) {

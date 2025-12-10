@@ -4,8 +4,8 @@ import { Action, ActionType, PlaybackParams, Sample } from '../../types';
 import Fader from '../Fader';
 import Pad from '../Pad';
 import { PADS_PER_BANK } from '../../constants';
-import BankSelector from '../BankSelector';
-import { db, BankKit, StorableSample } from '../../db';
+import { db, BankKit, StorableSample, audioBufferToStorable, storableToAudioBuffer } from '../../db';
+import { SubTab } from '../../App';
 
 interface SampleViewProps {
     playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
@@ -23,6 +23,7 @@ interface SampleViewProps {
     sampleClipboard: Sample | null;
     // Dispatch and callbacks
     dispatch: React.Dispatch<Action>;
+    setSubTabs: (tabs: SubTab[]) => void;
 }
 
 
@@ -76,42 +77,10 @@ const encodeWav = (audioBuffer: AudioBuffer): Blob => {
     return new Blob([view], { type: 'audio/wav' });
 };
 
-const audioBufferToStorable = (buffer: AudioBuffer | null): StorableSample['bufferData'] => {
-    if (!buffer) return null;
-    const channelData: Float32Array[] = [];
-    for (let i = 0; i < buffer.numberOfChannels; i++) {
-        channelData.push(buffer.getChannelData(i));
-    }
-    return {
-        channelData,
-        sampleRate: buffer.sampleRate,
-        length: buffer.length,
-        numberOfChannels: buffer.numberOfChannels,
-    };
-};
-
-const storableToAudioBuffer = (storable: StorableSample['bufferData'] | null, audioContext: AudioContext): AudioBuffer | null => {
-    if (!storable) return null;
-    try {
-        const buffer = audioContext.createBuffer(
-            storable.numberOfChannels,
-            storable.length,
-            storable.sampleRate
-        );
-        for (let i = 0; i < storable.numberOfChannels; i++) {
-            buffer.copyToChannel(storable.channelData[i], i);
-        }
-        return buffer;
-    } catch (e) {
-        console.error("Error creating AudioBuffer from stored data:", e);
-        return null;
-    }
-};
-
 const SampleView: React.FC<SampleViewProps> = ({ 
     playSample, startRecording, stopRecording, loadSampleFromBlob,
     activeSampleId, samples, activeSampleBank, isRecording, audioContext, isArmed, recordingThreshold, sampleClipboard,
-    dispatch
+    dispatch, setSubTabs
 }) => {
     const activeSample = samples[activeSampleId];
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -119,6 +88,13 @@ const SampleView: React.FC<SampleViewProps> = ({
 
     const [bankKitName, setBankKitName] = useState('New Bank Kit');
     const [bankKits, setBankKits] = useState<BankKit[]>([]);
+
+    useEffect(() => {
+        setSubTabs([
+            { label: 'SAMPLING', onClick: () => setIsSamplingMode(true), isActive: isSamplingMode },
+            { label: 'PARAMS', onClick: () => setIsSamplingMode(false), isActive: !isSamplingMode }
+        ]);
+    }, [isSamplingMode, setSubTabs]);
 
     const refreshBankKits = useCallback(async () => {
         const bKits = await db.bankKits.orderBy('createdAt').reverse().toArray();
@@ -171,7 +147,7 @@ const SampleView: React.FC<SampleViewProps> = ({
                 samples: newSamples
             }
         });
-        alert(`バンクキット「${kit.name}」をバンク ${String.fromCharCode(65 + activeSampleBank)} に読み込みました。`);
+        alert(`バンクキット「${kit.name}」をバンク ${activeSampleBank === 3 ? 'SYNTH' : String.fromCharCode(65 + activeSampleBank)} に読み込みました。`);
     }, [audioContext, activeSampleBank, dispatch]);
 
     const handleDeleteBankKit = async (kitId: number) => {
@@ -253,7 +229,8 @@ const SampleView: React.FC<SampleViewProps> = ({
     }
 
     const sampleBankOffset = activeSampleBank * PADS_PER_BANK;
-    const activeSampleLabel = `${String.fromCharCode(65 + activeSampleBank)}${(activeSampleId % PADS_PER_BANK) + 1}`;
+    const bankLabel = activeSampleBank === 3 ? 'SYNTH' : String.fromCharCode(65 + activeSampleBank);
+    const activeSampleLabel = `${bankLabel}${(activeSampleId % PADS_PER_BANK) + 1}`;
 
     return (
         <div className="flex flex-col h-full p-1 space-y-1">
@@ -263,22 +240,15 @@ const SampleView: React.FC<SampleViewProps> = ({
                 <div className="flex items-center space-x-2">
                     <div className="bg-emerald-100 rounded-md px-3 py-2 flex-shrink-0">
                         <span className="font-bold text-lg text-slate-700">{activeSampleLabel}</span>
-                        {!activeSample.buffer && <span className="text-xs text-slate-400 font-medium ml-2">(EMPTY)</span>}
+                        {!activeSample.buffer && activeSampleBank !== 3 && <span className="text-xs text-slate-400 font-medium ml-2">(EMPTY)</span>}
                     </div>
-                    <BankSelector type="sample" />
                 </div>
-                <button 
-                    onClick={() => setIsSamplingMode(!isSamplingMode)}
-                    className={`px-3 py-2 text-xs font-bold rounded-md transition-colors ${isSamplingMode ? 'bg-sky-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
-                >
-                    {isSamplingMode ? 'SAMPLING' : 'PARAMS'}
-                </button>
             </div>
             
             <div className="grid grid-cols-8 gap-1 flex-shrink-0">
                 {Array.from({ length: PADS_PER_BANK }).map((_, i) => {
                     const sampleId = sampleBankOffset + i;
-                    return <Pad key={sampleId} id={sampleId} label={`${String.fromCharCode(65 + activeSampleBank)}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleId} hasContent={!!samples[sampleId].buffer} isArmed={isArmed && activeSampleId === sampleId} isRecording={isRecording && activeSampleId === sampleId} padType="sample" />;
+                    return <Pad key={sampleId} id={sampleId} label={`${bankLabel}${i + 1}`} onClick={handleSamplePadClick} isActive={activeSampleId === sampleId} hasContent={!!samples[sampleId].buffer || activeSampleBank === 3} isArmed={isArmed && activeSampleId === sampleId} isRecording={isRecording && activeSampleId === sampleId} padType="sample" />;
                 })}
             </div>
 
@@ -296,7 +266,7 @@ const SampleView: React.FC<SampleViewProps> = ({
                             <Fader label="Threshold" value={Math.pow(recordingThreshold, 1/4)} displayValue={recordingThreshold} onChange={handleThresholdChange} min={0} max={1} step={0.01} defaultValue={Math.pow(0.02, 1/4)} />
                         </div>
                          <div className="border-t-2 border-emerald-100 mt-2 pt-2 space-y-2">
-                            <h3 className="font-bold text-slate-700 text-sm text-center">バンクキット (バンク {String.fromCharCode(65 + activeSampleBank)} のサンプル)</h3>
+                            <h3 className="font-bold text-slate-700 text-sm text-center">バンクキット (バンク {bankLabel} のサンプル)</h3>
                             <div className="flex space-x-2">
                                 <input type="text" value={bankKitName} onChange={(e) => setBankKitName(e.target.value)} className="bg-emerald-100 text-slate-800 rounded px-3 py-1.5 w-full focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm" placeholder="バンクキット名" />
                                 <button onClick={handleSaveBankKit} className="bg-amber-400 hover:bg-amber-500 text-white font-bold px-4 py-1.5 rounded text-sm whitespace-nowrap">キット保存</button>

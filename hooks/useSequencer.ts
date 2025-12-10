@@ -58,7 +58,7 @@ export const useSequencer = (
     scheduleLfoRetrigger: (lfoIndex: number, time: number) => void
 ) => {
     const { state, dispatch } = useContext(AppContext);
-    const { isPlaying, audioContext } = state;
+    const { isPlaying, audioContext, projectLoadCount } = state;
 
     const sequencerStateRef = useRef({ ...state });
     useEffect(() => {
@@ -108,14 +108,14 @@ export const useSequencer = (
             track.currentPart = 'A';
             track.partRepetition = 0;
             track.totalStepsElapsed = 0;
-            if (i === 3) { // Sync synth track's mod wheel on play start
+            if (i === 3) { // Sync synth track's state on play start
                 track.lastModWheelValue = sequencerStateRef.current.synth.modWheel;
             }
         });
 
         const scheduler = () => {
             // Use the ref to get the most up-to-date state inside the interval.
-            const { patterns, activePatternIds, grooveDepths, activeGrooveIds, bpm, activeSampleBank, samples, synth } = sequencerStateRef.current;
+            const { patterns, activePatternIds, grooveDepths, activeGrooveIds, bpm, activeSampleBank, samples, synth, isModWheelLockMuted } = sequencerStateRef.current;
             if(!audioContext) return;
 
             while (true) {
@@ -174,14 +174,11 @@ export const useSequencer = (
                         });
                     }
                     
-                    // Maintain the last locked mod wheel value (trigger-style)
-                    let foundLockThisStep = false;
+                    // Maintain the last locked p-lock values (trigger-style)
                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
                         const modWheelLock = pattern.paramLocks[sampleId]?.modWheel?.[displayStep];
                         if (modWheelLock !== undefined && modWheelLock !== null) {
                             trackState.lastModWheelValue = modWheelLock;
-                            foundLockThisStep = true;
-                            break; // Only need one lock value for the entire synth track at a given step
                         }
                     }
 
@@ -195,6 +192,13 @@ export const useSequencer = (
                     
                     // Enforce strict monophony: only play the note on the lowest active pad number.
                     if (activeNotes.length > 0) {
+                        // LFO Gate Retriggering
+                        [synth.lfo1, synth.lfo2].forEach((lfo, lfoIndex) => {
+                            if (lfo.syncTrigger === 'Gate') {
+                                scheduleLfoRetrigger(lfoIndex, scheduledTime);
+                            }
+                        });
+
                         const noteToPlay = activeNotes.sort((a, b) => a.sampleId - b.sampleId)[0];
                         let finalDetune = noteToPlay.stepInfo.detune ?? 0;
 
@@ -203,9 +207,10 @@ export const useSequencer = (
                             finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
                         }
                         
-                        // Use the persistent, trigger-style mod wheel value from the track state
+                        // Use the persistent, trigger-style p-lock values from the track state
+                        // BUT, if P.L Mute is on, use the global value instead.
                         const synthParams: Partial<Pick<Synth, 'modWheel'>> = {
-                            modWheel: trackState.lastModWheelValue,
+                            modWheel: (isModWheelLockMuted ?? false) ? synth.modWheel : trackState.lastModWheelValue,
                         };
 
                         playSynthNote(finalDetune, scheduledTime, synthParams);
@@ -285,5 +290,5 @@ export const useSequencer = (
             }
         };
 
-    }, [isPlaying, audioContext, dispatch, playSample, playSynthNote, scheduleLfoRetrigger]);
+    }, [isPlaying, audioContext, dispatch, playSample, playSynthNote, scheduleLfoRetrigger, projectLoadCount]);
 };

@@ -18,11 +18,20 @@ import { useSequencer } from './hooks/useSequencer';
 import { PADS_PER_BANK } from './constants';
 import SCALES from './scales';
 
-type View = 'SAMPLE' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT' | 'SYNTH';
+type View = 'OTO' | 'SEQ' | 'GROOVE' | 'MIXER' | 'PROJECT';
+
+export interface SubTab {
+  label: string;
+  onClick: () => void;
+  isActive: boolean;
+  isSpecial?: boolean; // For styling, e.g., REC button
+}
+
 
 const App: React.FC = () => {
   const { state, dispatch } = useContext(AppContext);
-  const [activeView, setActiveView] = useState<View>('SAMPLE');
+  const [activeView, setActiveView] = useState<View>('OTO');
+  const [subTabs, setSubTabs] = useState<SubTab[]>([]);
   
   const stateRef = useRef(state);
   useEffect(() => {
@@ -55,6 +64,11 @@ const App: React.FC = () => {
       window.removeEventListener('keydown', initAudio);
     };
   }, [state.isInitialized, dispatch]);
+  
+  // Clear step selection when changing main view
+  useEffect(() => {
+    dispatch({ type: ActionType.SET_SELECTED_SEQ_STEP, payload: null });
+  }, [activeView, dispatch]);
 
   const { 
     playSample, 
@@ -65,9 +79,83 @@ const App: React.FC = () => {
     stopRecording,
     startMasterRecording,
     stopMasterRecording,
+    flushAllSources,
     lfoAnalysers // Get analysers
   } = useAudioEngine();
   useSequencer(playSample, playSynthNote, scheduleLfoRetrigger);
+
+  const handleNotePlay = useCallback((detune: number) => {
+    const { 
+        activeView: currentActiveView, 
+        state: appState, 
+        dispatch: appDispatch 
+    } = { activeView: activeViewRef.current, state: stateRef.current, dispatch };
+
+    const { 
+        seqMode, isPlaying, selectedSeqStep, activeSampleBank, activeSampleId, 
+        activePatternIds, activeKey, keyboardOctave
+    } = appState;
+    
+    const finalRelativeDetune = detune + (activeKey * 100) + ((keyboardOctave - 4) * 1200);
+
+    // 1. Check for Step Input mode
+    if (currentActiveView === 'SEQ' && (seqMode === 'PART' || seqMode === 'PARAM') && selectedSeqStep !== null) {
+        
+        const targetPatternId = activePatternIds[activeSampleBank];
+        
+        // This is a step input. We record the note on the selected step for the active sample lane.
+        appDispatch({
+            type: ActionType.RECORD_STEP,
+            payload: { 
+                patternId: targetPatternId, 
+                sampleId: activeSampleId, 
+                step: selectedSeqStep, 
+                detune: finalRelativeDetune 
+            }
+        });
+        
+        // Also play the note live for feedback
+        if (activeSampleBank === 3) {
+            playSynthNote(finalRelativeDetune, 0);
+        } else {
+            playSample(activeSampleId, 0, { detune: finalRelativeDetune });
+        }
+        return; // Done
+    }
+
+    // 2. If not step input, proceed with live play / real-time recording
+    if(activeSampleBank === 3) {
+      playSynthNote(finalRelativeDetune, 0);
+    } else {
+      playSample(activeSampleId, 0, { detune: finalRelativeDetune });
+    }
+    
+    // 3. Handle real-time recording
+    if (seqMode === 'REC' && isPlaying) {
+        const { currentSteps } = appState;
+        const isSynth = activeSampleBank === 3;
+        if (isSynth) {
+            const currentStep = currentSteps[3];
+            const activePatternId = activePatternIds[3];
+            if (currentStep >= 0) {
+                appDispatch({
+                    type: ActionType.RECORD_STEP,
+                    payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: finalRelativeDetune }
+                });
+            }
+        } else { // 'A', 'B', or 'C'
+             const currentStep = currentSteps[activeSampleBank];
+             const activePatternId = activePatternIds[activeSampleBank];
+             if (currentStep >= 0) {
+                appDispatch({
+                    type: ActionType.RECORD_STEP,
+                    payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: finalRelativeDetune }
+                });
+            }
+        }
+    }
+  }, [dispatch, playSample, playSynthNote]);
+
 
   const handlePCKeyboardInput = useCallback((event: KeyboardEvent) => {
       if (event.repeat) return;
@@ -76,9 +164,8 @@ const App: React.FC = () => {
       const currentActiveView = activeViewRef.current;
 
       const { 
-          activeSampleBank, activeKey, activeScale, keyboardOctave, seqMode, 
-          isPlaying, currentSteps, activePatternIds, activeSampleId,
-          isRecording, isArmed, samples, keyboardSource
+          activeSampleBank, activeKey, activeScale, keyboardOctave,
+          isRecording, isArmed
       } = appState;
   
       const targetElement = event.target as HTMLElement;
@@ -90,7 +177,7 @@ const App: React.FC = () => {
 
       const key = event.key;
   
-      if (currentActiveView === 'SAMPLE') {
+      if (currentActiveView === 'OTO' && activeSampleBank < 3) {
           switch (key.toLowerCase()) {
               case 'q':
                   if (isRecording || isArmed) stopRecording(); else startRecording();
@@ -115,7 +202,7 @@ const App: React.FC = () => {
               const newKey = (activeKey - 1 + 12) % 12;
               appDispatch({ type: ActionType.SET_KEY, payload: newKey });
               // Also update active pattern playback key
-              const activePatternId = activePatternIds[activeSampleBank];
+              const activePatternId = appState.activePatternIds[activeSampleBank];
               if (activePatternId !== undefined) {
                   appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, key: newKey } });
               }
@@ -125,7 +212,7 @@ const App: React.FC = () => {
               const newKey = (activeKey + 1) % 12;
               appDispatch({ type: ActionType.SET_KEY, payload: newKey });
               // Also update active pattern playback key
-              const activePatternId = activePatternIds[activeSampleBank];
+              const activePatternId = appState.activePatternIds[activeSampleBank];
               if (activePatternId !== undefined) {
                   appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, key: newKey } });
               }
@@ -140,7 +227,7 @@ const App: React.FC = () => {
             const newScale = SCALES[prevIndex].name;
             appDispatch({ type: ActionType.SET_SCALE, payload: newScale });
             // Also update active pattern playback scale
-            const activePatternId = activePatternIds[activeSampleBank];
+            const activePatternId = appState.activePatternIds[activeSampleBank];
             if (activePatternId !== undefined) {
                 appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, scale: newScale } });
             }
@@ -152,7 +239,7 @@ const App: React.FC = () => {
             const newScale = SCALES[nextIndex].name;
             appDispatch({ type: ActionType.SET_SCALE, payload: newScale });
             // Also update active pattern playback scale
-            const activePatternId = activePatternIds[activeSampleBank];
+            const activePatternId = appState.activePatternIds[activeSampleBank];
             if (activePatternId !== undefined) {
                 appDispatch({ type: ActionType.UPDATE_PATTERN_PLAYBACK_SCALE, payload: { patternId: activePatternId, scale: newScale } });
             }
@@ -171,12 +258,10 @@ const App: React.FC = () => {
           const sampleIdToTrigger = activeSampleBank * PADS_PER_BANK + (padNumber - 1);
           appDispatch({ type: ActionType.SET_ACTIVE_SAMPLE, payload: sampleIdToTrigger });
 
-          // This logic is based on activeSampleBank, which is correct because keys 1-8 are for the currently focused bank.
-          // Per user request, this no longer changes the global keyboard source.
           if (activeSampleBank === 3) {
-            playSynthNote(1200, 0); // Play a default note for synth track pads
+            playSynthNote(0, 0); 
           } else {
-            if (samples[sampleIdToTrigger]?.buffer) {
+            if (appState.samples[sampleIdToTrigger]?.buffer) {
                  playSample(sampleIdToTrigger, 0);
             }
           }
@@ -216,40 +301,10 @@ const App: React.FC = () => {
         }
 
         if (noteInCents !== undefined) {
-            const detuneWithKeyAndOctave = noteInCents + (activeKey * 100) + ((keyboardOctave - 4) * 1200);
-            
-            if(keyboardSource === 'SYNTH') {
-              playSynthNote(detuneWithKeyAndOctave, 0);
-            } else {
-              const playbackParams: Partial<PlaybackParams> = { detune: detuneWithKeyAndOctave };
-              playSample(activeSampleId, 0, playbackParams);
-            }
-    
-            if (seqMode === 'REC' && isPlaying) {
-                const isSynth = keyboardSource === 'SYNTH';
-                if (isSynth) {
-                    const currentStep = currentSteps[3];
-                    const activePatternId = activePatternIds[3];
-                    if (currentStep >= 0) {
-                        appDispatch({
-                            type: ActionType.RECORD_STEP,
-                            payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: detuneWithKeyAndOctave }
-                        });
-                    }
-                } else { // 'A', 'B', or 'C'
-                     const currentStep = currentSteps[activeSampleBank];
-                     const activePatternId = activePatternIds[activeSampleBank];
-                     if (currentStep >= 0) {
-                        appDispatch({
-                            type: ActionType.RECORD_STEP,
-                            payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: detuneWithKeyAndOctave }
-                        });
-                    }
-                }
-            }
+            handleNotePlay(noteInCents); // Base detune before key/octave
         }
       }
-  }, [dispatch, playSample, playSynthNote, startRecording, stopRecording]);
+  }, [dispatch, startRecording, stopRecording, handleNotePlay, playSample, playSynthNote]);
   
   useEffect(() => {
       window.addEventListener('keydown', handlePCKeyboardInput);
@@ -259,9 +314,29 @@ const App: React.FC = () => {
   }, [handlePCKeyboardInput]);
 
   const renderView = () => {
+    if (state.isLoading) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <p className="text-slate-500 text-lg animate-pulse">Loading last session...</p>
+        </div>
+      );
+    }
+    if (!state.isInitialized) {
+      return (
+        <div className="flex items-center justify-center h-full">
+         <p className="text-slate-500 text-lg">Click anywhere to start the audio engine...</p>
+       </div>
+     );
+    }
+
     switch (activeView) {
-      case 'SAMPLE':
+      case 'OTO':
+        if (state.activeSampleBank === 3) { // SYNTH bank
+          return <SynthView setSubTabs={setSubTabs} playSynthNote={playSynthNote} lfoAnalysers={lfoAnalysers} />;
+        }
+        // Sample banks A, B, C
         return <SampleView 
+            setSubTabs={setSubTabs}
             activeSampleId={state.activeSampleId}
             samples={state.samples}
             activeSampleBank={state.activeSampleBank}
@@ -277,17 +352,20 @@ const App: React.FC = () => {
             dispatch={dispatch}
         />;
       case 'SEQ':
-        return <SeqView playSample={playSample} playSynthNote={playSynthNote} />;
+        return <SeqView setSubTabs={setSubTabs} playSample={playSample} playSynthNote={playSynthNote} />;
       case 'GROOVE':
         return <GrooveView />;
       case 'MIXER':
-          return <MixerView startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />;
+          return <MixerView setSubTabs={setSubTabs} startMasterRecording={startMasterRecording} stopMasterRecording={stopMasterRecording} />;
       case 'PROJECT':
-        return <ProjectView />;
-      case 'SYNTH':
-        return <SynthView playSynthNote={playSynthNote} lfoAnalysers={lfoAnalysers} />;
+        return <ProjectView flushAllSources={flushAllSources} />;
       default:
+        // Fallback to OTO logic
+        if (state.activeSampleBank === 3) {
+          return <SynthView setSubTabs={setSubTabs} playSynthNote={playSynthNote} lfoAnalysers={lfoAnalysers} />;
+        }
         return <SampleView 
+            setSubTabs={setSubTabs}
             activeSampleId={state.activeSampleId}
             samples={state.samples}
             activeSampleBank={state.activeSampleBank}
@@ -307,34 +385,52 @@ const App: React.FC = () => {
   
   return (
     <div className="bg-emerald-50 text-slate-800 flex flex-col h-screen font-sans w-full max-w-md mx-auto relative">
-      <header className="flex-shrink-0 p-0.5 bg-emerald-100/50">
-        <div className="grid grid-cols-6 gap-1">
-          <TabButton label="SAMPLE" isActive={activeView === 'SAMPLE'} onClick={() => setActiveView('SAMPLE')} />
-          <TabButton label="SEQ" isActive={activeView === 'SEQ'} onClick={() => setActiveView('SEQ')} />
-          <TabButton label="SYNTH" isActive={activeView === 'SYNTH'} onClick={() => setActiveView('SYNTH')} />
-          <TabButton label="GROOVE" isActive={activeView === 'GROOVE'} onClick={() => setActiveView('GROOVE')} />
-          <TabButton label="MIXER" isActive={activeView === 'MIXER'} onClick={() => setActiveView('MIXER')} />
-          <TabButton label="PROJECT" isActive={activeView === 'PROJECT'} onClick={() => setActiveView('PROJECT')} />
-        </div>
-      </header>
-      
-      <section className="flex-shrink-0 p-1 bg-emerald-100/50">
+      <header className="flex-shrink-0 p-1 bg-emerald-100/50">
         <Transport 
           startMasterRecording={startMasterRecording} 
           stopMasterRecording={stopMasterRecording}
         />
-      </section>
-
+      </header>
+      
       <main className="flex-grow min-h-0 overflow-y-auto">
-        {state.isInitialized ? renderView() : (
-           <div className="flex items-center justify-center h-full">
-            <p className="text-slate-500 text-lg">Click anywhere to start the audio engine...</p>
-          </div>
-        )}
+        {renderView()}
       </main>
 
-      <footer className="flex-shrink-0">
-        <GlobalKeyboard playSample={playSample} playSynthNote={playSynthNote} />
+      <footer className="flex-shrink-0 space-y-1 pt-1">
+        {/* Sub-tabs */}
+        <div className="flex-shrink-0">
+            {subTabs.length > 0 && (
+              <div className="px-1">
+                  <div className="flex justify-around items-center space-x-1 p-1 bg-emerald-200 rounded-lg">
+                  {subTabs.map(tab => (
+                      <button
+                      key={tab.label}
+                      onClick={tab.onClick}
+                      className={`flex-grow py-1 text-sm font-bold rounded-md transition-colors 
+                          ${tab.isActive
+                          ? (tab.isSpecial ? 'bg-rose-500 text-white shadow' : 'bg-white text-slate-800 shadow')
+                          : 'bg-transparent text-slate-600'
+                          }`}
+                      >
+                      {tab.label}
+                      </button>
+                  ))}
+                  </div>
+              </div>
+            )}
+        </div>
+        
+        {/* Main tabs */}
+        <div className="p-0.5 bg-emerald-100/50">
+          <div className="grid grid-cols-5 gap-1">
+            <TabButton label="OTO" isActive={activeView === 'OTO'} onClick={() => setActiveView('OTO')} />
+            <TabButton label="SEQ" isActive={activeView === 'SEQ'} onClick={() => setActiveView('SEQ')} />
+            <TabButton label="GROOVE" isActive={activeView === 'GROOVE'} onClick={() => setActiveView('GROOVE')} />
+            <TabButton label="MIXER" isActive={activeView === 'MIXER'} onClick={() => setActiveView('MIXER')} />
+            <TabButton label="PROJECT" isActive={activeView === 'PROJECT'} onClick={() => setActiveView('PROJECT')} />
+          </div>
+        </div>
+        <GlobalKeyboard onNotePlay={handleNotePlay} />
       </footer>
     </div>
   );

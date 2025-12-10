@@ -1,8 +1,10 @@
 
-import React, { createContext, useReducer, Dispatch } from 'react';
+import React, { createContext, useReducer, Dispatch, useEffect, useState, useCallback } from 'react';
 import { AppState, Action, ActionType, Sample, MasterCompressorParams, Step, LockableParam, Pattern, LaneClipboardData, BankClipboardData, BankPresetData, Synth, SynthPreset, ModMatrix, ModPatch, MasterCompressorSnapshot } from '../types';
 import { TOTAL_SAMPLES, TOTAL_PATTERNS, STEPS_PER_PATTERN, TOTAL_BANKS, GROOVE_PATTERNS, PADS_PER_BANK, OSC_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, LFO_WAVEFORMS, MOD_SOURCES, MOD_DESTINATIONS, LFO_SYNC_RATES, LFO_SYNC_TRIGGERS } from '../constants';
 import SCALES from '../scales';
+import { db, Session, StorableSample, audioBufferToStorable, storableToAudioBuffer } from '../db';
+
 
 const createEmptySteps = (): Step[][] =>
     Array.from({ length: TOTAL_SAMPLES }, () =>
@@ -22,8 +24,9 @@ const initialSynthState: Synth = {
     ampEnv: { decay: 0.5 },
     lfo1: { type: 'Sine', rate: 5, rateMode: 'hz', syncTrigger: 'Free' },
     lfo2: { type: 'Sine', rate: 2, rateMode: 'hz', syncTrigger: 'Free' },
-    globalGateTime: 0.2,
     modWheel: 1,
+    masterGain: 1,
+    masterOctave: 0,
 };
 
 const defaultPresets: (SynthPreset | null)[] = Array(128).fill(null);
@@ -179,7 +182,6 @@ defaultPresets[11] = {
         osc2: { ...initialSynthState.osc2, type: 'Square', octave: -1, detune: 0 },
         filter: { type: 'Lowpass 12dB', cutoff: 12000, resonance: 0, envAmount: 0 },
         ampEnv: { decay: 0.15 },
-        globalGateTime: 0.1,
         lfo1: { ...initialSynthState.lfo1, syncTrigger: 'Gate' },
     },
     modMatrix: {},
@@ -221,7 +223,6 @@ defaultPresets[14] = {
         filter: { type: 'Lowpass 12dB', cutoff: 800, resonance: 2, envAmount: 2000 },
         filterEnv: { attack: 0.01, decay: 0.15, sustain: 0 },
         ampEnv: { decay: 0.3 },
-        globalGateTime: 0.3,
     },
     modMatrix: { 'filterEnv': { 'osc1Pitch': -1.0 } },
 };
@@ -519,9 +520,12 @@ const initialState: AppState = {
     synth: initialSynthState,
     synthModMatrix: {},
     isModMatrixMuted: false,
+    isModWheelLockMuted: false,
     synthPresets: defaultPresets,
     synthModPatches: Array(16).fill(null),
-    keyboardSource: 'A',
+    selectedSeqStep: null,
+    projectLoadCount: 0,
+    isLoading: true, // Start in loading state
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -562,12 +566,13 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case ActionType.SET_ACTIVE_SAMPLE_BANK: {
             const newBankIndex = action.payload;
             
-            // CRITICAL FIX: Similar to SET_ACTIVE_SAMPLE, changing the focused bank
-            // is a UI action and should not affect the global groove playback state.
+            // When the bank changes, set the active sample to the first pad of that bank.
+            const newActiveSampleId = newBankIndex * PADS_PER_BANK;
+
             return {
                 ...state,
                 activeSampleBank: newBankIndex,
-                activeSampleId: newBankIndex * PADS_PER_BANK,
+                activeSampleId: newActiveSampleId,
             };
         }
         case ActionType.SET_ACTIVE_GROOVE: {
@@ -971,9 +976,20 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 }),
             };
         }
-        case ActionType.LOAD_PROJECT_STATE:
-             // Keep audioContext, but load everything else
-            return { ...state, ...action.payload, audioContext: state.audioContext, isPlaying: false, currentSteps: Array(TOTAL_BANKS).fill(-1), isRecording: false, isArmed: false };
+        case ActionType.LOAD_PROJECT_STATE: {
+            const { audioContext, isInitialized, isPlaying } = state;
+            const loadedState = action.payload;
+
+            return {
+                ...initialState,
+                ...loadedState,
+                audioContext,
+                isInitialized,
+                isPlaying,
+                projectLoadCount: state.projectLoadCount + 1,
+                isLoading: false,
+            };
+        }
         case ActionType.SET_RECORDING_STATE:
             return { ...state, isRecording: action.payload };
         case ActionType.SET_ARMED_STATE:
@@ -1401,7 +1417,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 },
                 lfo1: { ...state.synth.lfo1, type: random(LFO_WAVEFORMS), rate: randomLfo1Rate, rateMode: randomLfo1RateMode, syncTrigger: random(LFO_SYNC_TRIGGERS) },
                 lfo2: { ...state.synth.lfo2, type: random(LFO_WAVEFORMS), rate: randomLfo2Rate, rateMode: randomLfo2RateMode, syncTrigger: random(LFO_SYNC_TRIGGERS) },
-                globalGateTime: randomFloat(0.05, 1.5),
                 modWheel: 1.0,
             };
             return { ...state, synth: newSynth };
@@ -1480,33 +1495,12 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 synthModMatrix: JSON.parse(JSON.stringify(preset.modMatrix)),
             };
         }
-        case ActionType.SET_KEYBOARD_SOURCE: {
-            const newSource = action.payload;
-            let newActiveSampleBank = state.activeSampleBank;
-            let newActiveSampleId = state.activeSampleId;
-
-            if (newSource === 'A') {
-                newActiveSampleBank = 0;
-            } else if (newSource === 'B') {
-                newActiveSampleBank = 1;
-            } else if (newSource === 'C') {
-                newActiveSampleBank = 2;
-            } else if (newSource === 'SYNTH') {
-                newActiveSampleBank = 3;
-            }
-            
-            // If the bank changes, set the active sample to the first pad of that bank
-            if (newActiveSampleBank !== state.activeSampleBank) {
-                newActiveSampleId = newActiveSampleBank * PADS_PER_BANK;
-            }
-
-            return { 
-                ...state, 
-                keyboardSource: newSource, 
-                activeSampleBank: newActiveSampleBank,
-                activeSampleId: newActiveSampleId,
-            };
-        }
+        case ActionType.SET_SELECTED_SEQ_STEP:
+            return { ...state, selectedSeqStep: action.payload };
+        case ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE:
+            return { ...state, isModWheelLockMuted: !(state.isModWheelLockMuted ?? false) };
+        case ActionType.SET_IS_LOADING:
+            return { ...state, isLoading: action.payload };
         default:
             return state;
     }
@@ -1519,5 +1513,75 @@ export const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Ac
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(appReducer, initialState);
+    const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
+
+    // Effect for loading session on startup
+    useEffect(() => {
+        const loadSession = async () => {
+            const sessionData = await db.session.get(0);
+            if (sessionData && state.audioContext) {
+                const storableToSamples = (storableSamples: StorableSample[]): Sample[] => {
+                    if (!state.audioContext) return [];
+                    return storableSamples.map(s => ({
+                        ...s,
+                        buffer: storableToAudioBuffer(s.bufferData, state.audioContext),
+                    }));
+                };
+                const loadedSamples = storableToSamples(sessionData.samples);
+                const loadedState = { ...sessionData.state, samples: loadedSamples };
+                dispatch({ type: ActionType.LOAD_PROJECT_STATE, payload: loadedState });
+            } else {
+                dispatch({ type: ActionType.SET_IS_LOADING, payload: false });
+            }
+            setIsInitialLoadComplete(true);
+        };
+
+        if (state.audioContext && !isInitialLoadComplete) {
+            loadSession();
+        }
+    }, [state.audioContext, isInitialLoadComplete]);
+
+
+    // Effect for saving session on state change
+    useEffect(() => {
+        if (!isInitialLoadComplete || state.isLoading) {
+            return; // Don't save until initial load is done and we're not in a loading state
+        }
+        
+        const handler = setTimeout(async () => {
+            const stateToSave = { ...state };
+            
+            // Exclude non-serializable or transient properties
+            const propertiesToDelete: (keyof AppState)[] = [
+                'audioContext', 'isInitialized', 'isPlaying', 'isRecording', 
+                'isArmed', 'currentSteps', 'samples', 'grooves', 'isLoading',
+                'isMasterRecording', 'isMasterRecArmed'
+            ];
+            propertiesToDelete.forEach(prop => delete (stateToSave as Partial<AppState>)[prop]);
+
+            const samplesToStore: StorableSample[] = state.samples.map(s => ({
+                ...s,
+                buffer: undefined, // remove the non-serializable buffer
+                bufferData: audioBufferToStorable(s.buffer),
+            }));
+
+            const session: Session = {
+                id: 0,
+                state: stateToSave,
+                samples: samplesToStore,
+            };
+
+            try {
+                await db.session.put(session);
+            } catch (error) {
+                console.error("Failed to save session:", error);
+            }
+        }, 1000); // Debounce save by 1 second
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [state, isInitialLoadComplete]);
+
     return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
 };

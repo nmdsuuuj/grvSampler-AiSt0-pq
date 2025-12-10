@@ -1,11 +1,11 @@
+
 import React, { useContext, useMemo } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType, PlaybackParams } from '../types';
+import { ActionType } from '../types';
 import SCALES from '../scales';
 
 interface GlobalKeyboardProps {
-    playSample: (id: number, time: number, params?: Partial<PlaybackParams>) => void;
-    playSynthNote: (detune: number, time?: number) => void;
+    onNotePlay: (detune: number) => void;
 }
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -26,47 +26,9 @@ const PHYSICAL_KEYBOARD_LAYOUT = [
     { chromaticIndex: 10, type: 'black', pcKey: 'J', position: 'left-[70.3125%]' },
 ];
 
-const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNote }) => {
+const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ onNotePlay }) => {
     const { state, dispatch } = useContext(AppContext);
-    const { activeKey, activeScale, activeSampleId, keyboardOctave, keyboardSource, seqMode, isPlaying, currentSteps, activePatternIds, activeSampleBank } = state;
-
-    const handleNotePlay = (detune: number) => {
-        const finalRelativeDetune = detune + (activeKey * 100) + ((keyboardOctave - 4) * 1200);
-
-        if (keyboardSource === 'SYNTH') {
-            playSynthNote(finalRelativeDetune, 0);
-        } else {
-            playSample(activeSampleId, 0, { detune: finalRelativeDetune });
-        }
-
-        // Handle real-time recording
-        if (seqMode === 'REC' && isPlaying) {
-            const isSynth = keyboardSource === 'SYNTH';
-            if (isSynth) {
-                // For synth, the bank is always 3. The activeSampleId will be within the synth bank range (24-31)
-                // because the reducer updates it when the source changes to SYNTH.
-                const currentStep = currentSteps[3];
-                const activePatternId = activePatternIds[3];
-                if (currentStep >= 0) {
-                    dispatch({
-                        type: ActionType.RECORD_STEP,
-                        payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: finalRelativeDetune }
-                    });
-                }
-            } else { // 'A', 'B', or 'C'
-                 // The reducer ensures activeSampleBank matches the keyboardSource ('A' -> 0, etc.)
-                 const currentStep = currentSteps[activeSampleBank];
-                 const activePatternId = activePatternIds[activeSampleBank];
-                 if (currentStep >= 0) {
-                    // And activeSampleId is also correct because the reducer sets it.
-                    dispatch({
-                        type: ActionType.RECORD_STEP,
-                        payload: { patternId: activePatternId, sampleId: activeSampleId, step: currentStep, detune: finalRelativeDetune }
-                    });
-                }
-            }
-        }
-    };
+    const { activeKey, activeScale, keyboardOctave, activeSampleBank } = state;
 
     const keyboardNotesInCents = useMemo(() => {
         const scale = SCALES.find(s => s.name === activeScale);
@@ -109,28 +71,27 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                 <div className="flex items-center space-x-2">
                     <button 
                         onClick={() => dispatch({ type: ActionType.SET_KEYBOARD_OCTAVE, payload: Math.max(0, keyboardOctave - 1) })}
-                        className="px-3 py-1 bg-emerald-200 text-emerald-800 font-bold rounded-md"
+                        className="px-3 py-0.5 bg-emerald-200 text-emerald-800 font-bold rounded-md"
                     >
                         &lt;
                     </button>
                     <span className="font-bold text-lg text-slate-700 w-4 text-center">{keyboardOctave}</span>
                     <button 
                         onClick={() => dispatch({ type: ActionType.SET_KEYBOARD_OCTAVE, payload: Math.min(8, keyboardOctave + 1) })}
-                        className="px-3 py-1 bg-emerald-200 text-emerald-800 font-bold rounded-md"
+                        className="px-3 py-0.5 bg-emerald-200 text-emerald-800 font-bold rounded-md"
                     >
                         &gt;
                     </button>
                 </div>
 
                 <div className="flex w-1/2 justify-center p-0.5 bg-emerald-200 rounded-lg">
-                    {/* FIX: Changed 'Synth' to 'SYNTH' to match the type definition. */}
-                    {(['A', 'B', 'C', 'SYNTH'] as const).map(source => (
+                    {[0, 1, 2, 3].map(bankIndex => (
                         <button
-                            key={source}
-                            onClick={() => dispatch({ type: ActionType.SET_KEYBOARD_SOURCE, payload: source })}
-                            className={`flex-grow py-1 text-xs font-bold rounded-md transition-colors ${keyboardSource === source ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
+                            key={bankIndex}
+                            onClick={() => dispatch({ type: ActionType.SET_ACTIVE_SAMPLE_BANK, payload: bankIndex })}
+                            className={`flex-grow py-0.5 text-xs font-bold rounded-md transition-colors ${activeSampleBank === bankIndex ? 'bg-white text-slate-800 shadow' : 'bg-transparent text-slate-600'}`}
                         >
-                            {source}
+                            {bankIndex === 3 ? 'SYNTH' : String.fromCharCode(65 + bankIndex)}
                         </button>
                     ))}
                 </div>
@@ -139,7 +100,7 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                      <select 
                         value={activeKey} 
                         onChange={(e) => dispatch({ type: ActionType.SET_KEY, payload: parseInt(e.target.value)})}
-                        className="bg-emerald-200 text-emerald-800 rounded p-1 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400"
+                        className="bg-emerald-200 text-emerald-800 rounded p-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400"
                     >
                         {NOTE_NAMES.map((name, index) => (
                             <option key={name} value={index}>{name}</option>
@@ -148,7 +109,7 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                      <select 
                         value={activeScale} 
                         onChange={(e) => dispatch({ type: ActionType.SET_SCALE, payload: e.target.value})}
-                        className="bg-emerald-200 text-emerald-800 rounded p-1 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 max-w-[90px]"
+                        className="bg-emerald-200 text-emerald-800 rounded p-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 max-w-[90px]"
                     >
                         {SCALES.map(scale => (
                             <option key={scale.name} value={scale.name}>{scale.name}</option>
@@ -164,7 +125,7 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                     return (
                         <button
                             key={keyInfo.chromaticIndex}
-                            onMouseDown={() => handleNotePlay(cents)}
+                            onMouseDown={() => onNotePlay(cents)}
                             className="w-[12.5%] h-full border-2 rounded-md flex flex-col items-center justify-end p-1 transition-colors bg-white border-slate-200 active:bg-pink-200"
                         >
                             <span className="font-bold text-base">{name}</span>
@@ -180,7 +141,7 @@ const GlobalKeyboard: React.FC<GlobalKeyboardProps> = ({ playSample, playSynthNo
                     return (
                          <button
                             key={keyInfo.chromaticIndex}
-                            onMouseDown={() => handleNotePlay(cents)}
+                            onMouseDown={() => onNotePlay(cents)}
                             className={`absolute w-[8.5%] h-14 border-2 rounded-md flex flex-col items-center justify-end p-1 transition-colors bg-slate-800 text-white border-slate-600 active:bg-pink-500 ${keyInfo.position}`}
                         >
                             <span className="font-bold text-base">{name}</span>

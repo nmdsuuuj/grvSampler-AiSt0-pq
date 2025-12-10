@@ -28,10 +28,16 @@ export interface Project {
   id?: number;
   name: string;
   createdAt: Date;
-  // FIX: Renamed `currentStep` to `currentSteps` to match the `AppState` interface and correctly omit the transient sequencer step state from saved projects.
-  state: Omit<AppState, 'audioContext' | 'isInitialized' | 'isPlaying' | 'isRecording' | 'currentSteps' | 'samples' | 'grooves'>;
+  state: Omit<AppState, 'audioContext' | 'isInitialized' | 'isPlaying' | 'isRecording' | 'currentSteps' | 'samples' | 'grooves' | 'isLoading'>;
   samples: StorableSample[];
 }
+
+export interface Session {
+  id?: 0; // Always use ID 0 for the single session
+  state: Omit<AppState, 'audioContext' | 'isInitialized' | 'isPlaying' | 'isRecording' | 'currentSteps' | 'samples' | 'grooves' | 'isLoading'>;
+  samples: StorableSample[];
+}
+
 
 export interface SampleKit {
   id?: number;
@@ -64,6 +70,7 @@ const dbInstance = new Dexie('GrooveSamplerDB') as Dexie & {
   sampleKits: Table<SampleKit>;
   bankPresets: Table<BankPreset>;
   bankKits: Table<BankKit>;
+  session: Table<Session>; // New table for session state
 };
 
 // Version 1 definition (for existing users)
@@ -95,4 +102,48 @@ dbInstance.version(4).stores({
   bankKits: '++id, name, createdAt',
 });
 
+// Version 5: Add session table for automatic persistence
+dbInstance.version(5).stores({
+  projects: '++id, name, createdAt',
+  sampleKits: '++id, name, createdAt',
+  bankPresets: '++id, name, createdAt',
+  bankKits: '++id, name, createdAt',
+  session: 'id', // Primary key is 'id', we will only use id: 0
+});
+
+
 export const db = dbInstance;
+
+// --- Centralized Helper Functions ---
+
+export const audioBufferToStorable = (buffer: AudioBuffer | null): StorableSample['bufferData'] => {
+    if (!buffer) return null;
+    const channelData: Float32Array[] = [];
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+        channelData.push(buffer.getChannelData(i));
+    }
+    return {
+        channelData,
+        sampleRate: buffer.sampleRate,
+        length: buffer.length,
+        numberOfChannels: buffer.numberOfChannels,
+    };
+};
+
+export const storableToAudioBuffer = (storable: StorableSample['bufferData'] | null, audioContext: AudioContext): AudioBuffer | null => {
+    if (!storable) return null;
+    try {
+        const buffer = audioContext.createBuffer(
+            storable.numberOfChannels,
+            storable.length,
+            storable.sampleRate
+        );
+        for (let i = 0; i < storable.numberOfChannels; i++) {
+            buffer.copyToChannel(storable.channelData[i], i);
+        }
+        return buffer;
+    } catch (e) {
+        console.error("Error creating AudioBuffer from stored data:", e);
+        return null;
+    }
+};

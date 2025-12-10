@@ -152,8 +152,9 @@ export interface Synth {
     ampEnv: SynthAmpEnvelope;
     lfo1: SynthLFO;
     lfo2: SynthLFO;
-    globalGateTime: number; // in seconds
     modWheel: number; // 0-1, global modulation amount
+    masterGain: number;
+    masterOctave: number;
 }
 
 export interface ModMatrix {
@@ -220,9 +221,12 @@ export interface AppState {
     synth: Synth;
     synthModMatrix: ModMatrix;
     isModMatrixMuted: boolean;
+    isModWheelLockMuted?: boolean;
     synthPresets: (SynthPreset | null)[];
     synthModPatches: (ModPatch | null)[];
-    keyboardSource: 'A' | 'B' | 'C' | 'SYNTH';
+    selectedSeqStep: number | null;
+    projectLoadCount: number; // For seamless project loading
+    isLoading: boolean; // For session restore feedback
 }
 
 export enum ActionType {
@@ -292,8 +296,9 @@ export enum ActionType {
     SAVE_SYNTH_PRESET_AT_INDEX,
     CLEAR_SYNTH_PRESET_AT_INDEX,
     LOAD_SYNTH_PRESET,
-    // Global Keyboard
-    SET_KEYBOARD_SOURCE,
+    SET_SELECTED_SEQ_STEP,
+    TOGGLE_MOD_WHEEL_LOCK_MUTE,
+    SET_IS_LOADING, // For session restore
 }
 
 export type Action =
@@ -363,5 +368,6 @@ export type Action =
     | { type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX; payload: { index: number, name: string, synth: Synth, matrix: ModMatrix } }
     | { type: ActionType.CLEAR_SYNTH_PRESET_AT_INDEX; payload: { index: number } }
     | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset }
-    // Global Keyboard
-    | { type: ActionType.SET_KEYBOARD_SOURCE; payload: 'A' | 'B' | 'C' | 'SYNTH' };
+    | { type: ActionType.SET_SELECTED_SEQ_STEP; payload: number | null }
+    | { type: ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE }
+    | { type: ActionType.SET_IS_LOADING; payload: boolean };
