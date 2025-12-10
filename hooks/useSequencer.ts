@@ -1,7 +1,7 @@
 
 import { useContext, useEffect, useRef } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType, PlaybackParams, Sample, Step } from '../types';
+import { ActionType, PlaybackParams, Sample, Step, Synth } from '../types';
 import { STEPS_PER_PART, GROOVE_PATTERNS, TOTAL_BANKS, PADS_PER_BANK } from '../constants';
 import SCALES from '../scales';
 
@@ -11,6 +11,7 @@ interface TrackState {
     currentPart: 'A' | 'B';
     partRepetition: number;
     totalStepsElapsed: number; // For bar-based LFO retriggering
+    lastModWheelValue: number; // For trigger-style P-Lock
 }
 
 // --- Helper function for scale remapping ---
@@ -53,7 +54,7 @@ const remapDetuneToScale = (originalDetune: number, targetScaleName: string, tar
 
 export const useSequencer = (
     playSample: (sampleId: number, time: number, params: Partial<PlaybackParams>) => void,
-    playSynthNote: (detune: number, time: number) => void,
+    playSynthNote: (detune: number, time: number, params?: Partial<Pick<Synth, 'modWheel'>>) => void,
     scheduleLfoRetrigger: (lfoIndex: number, time: number) => void
 ) => {
     const { state, dispatch } = useContext(AppContext);
@@ -71,12 +72,14 @@ export const useSequencer = (
     const scheduleAheadTime = 0.1; // sec
 
     const resetSequence = () => {
-        trackStates.current = Array.from({ length: TOTAL_BANKS }, () => ({
+        trackStates.current = Array.from({ length: TOTAL_BANKS }, (_, i) => ({
             nextStepTime: 0,
             partStep: 0,
             currentPart: 'A',
             partRepetition: 0,
             totalStepsElapsed: 0,
+            // Initialize with the current global modWheel value for the synth track
+            lastModWheelValue: (i === 3 && sequencerStateRef.current) ? sequencerStateRef.current.synth.modWheel : 1.0,
         }));
         // The reducer handles resetting currentSteps now when isPlaying becomes false
     };
@@ -99,12 +102,15 @@ export const useSequencer = (
         }
 
         const now = audioContext.currentTime;
-        trackStates.current.forEach(track => {
+        trackStates.current.forEach((track, i) => {
             track.nextStepTime = now;
             track.partStep = 0;
             track.currentPart = 'A';
             track.partRepetition = 0;
             track.totalStepsElapsed = 0;
+            if (i === 3) { // Sync synth track's mod wheel on play start
+                track.lastModWheelValue = sequencerStateRef.current.synth.modWheel;
+            }
         });
 
         const scheduler = () => {
@@ -168,6 +174,17 @@ export const useSequencer = (
                         });
                     }
                     
+                    // Maintain the last locked mod wheel value (trigger-style)
+                    let foundLockThisStep = false;
+                    for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
+                        const modWheelLock = pattern.paramLocks[sampleId]?.modWheel?.[displayStep];
+                        if (modWheelLock !== undefined && modWheelLock !== null) {
+                            trackState.lastModWheelValue = modWheelLock;
+                            foundLockThisStep = true;
+                            break; // Only need one lock value for the entire synth track at a given step
+                        }
+                    }
+
                     const activeNotes: { sampleId: number; stepInfo: Step }[] = [];
                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
                         const stepInfo = pattern.steps[sampleId]?.[displayStep];
@@ -178,7 +195,6 @@ export const useSequencer = (
                     
                     // Enforce strict monophony: only play the note on the lowest active pad number.
                     if (activeNotes.length > 0) {
-                        // The loop already ensures the first one found is the lowest, but this is more explicit.
                         const noteToPlay = activeNotes.sort((a, b) => a.sampleId - b.sampleId)[0];
                         let finalDetune = noteToPlay.stepInfo.detune ?? 0;
 
@@ -186,8 +202,13 @@ export const useSequencer = (
                         if (pattern.playbackScale && pattern.playbackScale !== 'Thru') {
                             finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
                         }
-                        // --- End Logic ---
-                        playSynthNote(finalDetune, scheduledTime);
+                        
+                        // Use the persistent, trigger-style mod wheel value from the track state
+                        const synthParams: Partial<Pick<Synth, 'modWheel'>> = {
+                            modWheel: trackState.lastModWheelValue,
+                        };
+
+                        playSynthNote(finalDetune, scheduledTime, synthParams);
                     }
                 } else {
                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {

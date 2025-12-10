@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useMemo, useEffect, useRef } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, Pattern, LockableParam, Sample, PlaybackParams } from '../../types';
@@ -12,7 +13,7 @@ import TEMPLATES, { Template } from '../../templates';
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 
-const PARAMS: { value: LockableParam; label: string; min: number; max: number; step: number; isNote: boolean; }[] = [
+const SAMPLE_PARAMS: { value: LockableParam; label: string; min: number; max: number; step: number; isNote: boolean; }[] = [
     { value: 'pitch', label: 'Pitch', min: -24, max: 24, step: 0.01, isNote: false },
     { value: 'volume', label: 'Vol', min: 0, max: 1, step: 0.01, isNote: false },
     { value: 'decay', label: 'Decay', min: 0.01, max: 1, step: 0.001, isNote: false },
@@ -23,7 +24,13 @@ const PARAMS: { value: LockableParam; label: string; min: number; max: number; s
     { value: 'detune', label: 'Detune', min: -1200, max: 1200, step: 1, isNote: true },
 ];
 
-const FADER_PARAMS = PARAMS.filter(p => !['pitch', 'volume', 'detune'].includes(p.value));
+const SYNTH_PARAMS: { value: LockableParam; label: string; min: number; max: number; step: number; isNote: boolean; }[] = [
+    { value: 'detune', label: 'Detune', min: -7200, max: 7200, step: 1, isNote: true },
+    { value: 'velocity', label: 'Velo', min: 0, max: 1, step: 0.01, isNote: false },
+    { value: 'modWheel', label: 'ModWhl', min: 0, max: 1, step: 0.01, isNote: false },
+];
+
+const FADER_PARAMS = SAMPLE_PARAMS.filter(p => !['pitch', 'volume', 'detune'].includes(p.value));
 
 
 interface SeqViewProps {
@@ -216,6 +223,7 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
         activeKey,
         activeScale,
         seqMode,
+        synth,
     } = state;
 
     // --- Smart Scope Selector Logic ---
@@ -433,8 +441,47 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
             {seqMode === 'PART' && <PartSettings activePattern={activePattern} updatePatternParams={updatePatternParams} updatePlaybackScale={updatePlaybackScale} playbackState={playbackState} />}
             {seqMode === 'PARAM' && (
                  <div className="flex-shrink-0 bg-white shadow-md p-1 rounded-lg space-y-1">
-                    {/* The keyboard for parameter lock mode is now part of the GlobalKeyboard */}
-                    {!isSynthTrack && (
+                    {isSynthTrack ? (
+                         <div className="grid grid-cols-3 gap-x-2 gap-y-1">
+                            {SYNTH_PARAMS.map(p => {
+                                const lockedValue = p.value === 'velocity' || p.value === 'detune'
+                                    ? activePattern.steps[sampleId]?.[selectedStep]?.[p.value]
+                                    : activePattern.paramLocks[sampleId]?.[p.value]?.[selectedStep];
+                                
+                                let displayValue: number;
+                                let defaultValue: number;
+
+                                if (lockedValue !== null && lockedValue !== undefined) {
+                                    displayValue = lockedValue;
+                                } else {
+                                    if (p.value === 'velocity') displayValue = 1;
+                                    else if (p.value === 'detune') displayValue = 0;
+                                    else if (p.value === 'modWheel') displayValue = synth.modWheel;
+                                    else displayValue = 0;
+                                }
+
+                                if (p.value === 'velocity') defaultValue = 1;
+                                else if (p.value === 'detune') defaultValue = 0;
+                                else if (p.value === 'modWheel') defaultValue = synth.modWheel;
+                                else defaultValue = 0;
+
+                                return (
+                                     <Fader 
+                                        key={p.value}
+                                        label={p.label} 
+                                        value={displayValue} 
+                                        onChange={(val) => handleParamChange(p.value, val)} 
+                                        min={p.min} 
+                                        max={p.max} 
+                                        step={p.step} 
+                                        defaultValue={defaultValue}
+                                        displayValue={displayValue}
+                                        displayPrecision={p.value === 'detune' ? 0 : 2}
+                                    />
+                                );
+                            })}
+                        </div>
+                    ) : (
                          <div className="grid grid-cols-3 gap-x-2 gap-y-1">
                             {FADER_PARAMS.map(p => {
                                 const lockedValue = (p.value === 'velocity')
@@ -478,14 +525,8 @@ const SeqView: React.FC<SeqViewProps> = ({ playSample, playSynthNote }) => {
                             </div>
                         </div>
                     )}
-                     {isSynthTrack && (
-                        <div className="text-center text-slate-500 p-4">
-                            シンセトラックのパラメータは<br/>SYNTH画面で編集してください
-                        </div>
-                    )}
                 </div>
             )}
-            {/* The REC mode keyboard is replaced by the global one */}
 
 
             {/* Step Sequencer Grid / Param Editor */}

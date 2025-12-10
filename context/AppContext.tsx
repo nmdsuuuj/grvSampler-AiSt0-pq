@@ -23,6 +23,7 @@ const initialSynthState: Synth = {
     lfo1: { type: 'Sine', rate: 5, rateMode: 'hz', syncTrigger: 'Free' },
     lfo2: { type: 'Sine', rate: 2, rateMode: 'hz', syncTrigger: 'Free' },
     globalGateTime: 0.2,
+    modWheel: 1,
 };
 
 const defaultPresets: (SynthPreset | null)[] = Array(128).fill(null);
@@ -1401,6 +1402,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 lfo1: { ...state.synth.lfo1, type: random(LFO_WAVEFORMS), rate: randomLfo1Rate, rateMode: randomLfo1RateMode, syncTrigger: random(LFO_SYNC_TRIGGERS) },
                 lfo2: { ...state.synth.lfo2, type: random(LFO_WAVEFORMS), rate: randomLfo2Rate, rateMode: randomLfo2RateMode, syncTrigger: random(LFO_SYNC_TRIGGERS) },
                 globalGateTime: randomFloat(0.05, 1.5),
+                modWheel: 1.0,
             };
             return { ...state, synth: newSynth };
         }

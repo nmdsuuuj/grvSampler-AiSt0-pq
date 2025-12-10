@@ -27,7 +27,7 @@ export interface Step {
 }
 
 // Parameters that can be locked per step for a given sample
-export type LockableParam = 'detune' | 'velocity' | 'volume' | 'pitch' | 'start' | 'end' | 'decay' | 'lpFreq' | 'hpFreq';
+export type LockableParam = 'detune' | 'velocity' | 'volume' | 'pitch' | 'start' | 'end' | 'decay' | 'lpFreq' | 'hpFreq' | 'modWheel';
 
 export interface Pattern {
     id: number;
@@ -153,6 +153,7 @@ export interface Synth {
     lfo1: SynthLFO;
     lfo2: SynthLFO;
     globalGateTime: number; // in seconds
+    modWheel: number; // 0-1, global modulation amount
 }
 
 export interface ModMatrix {

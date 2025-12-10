@@ -1,6 +1,7 @@
+
 import { useContext, useRef, useCallback, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
-import { ActionType, Sample, PlaybackParams, BiquadFilterType } from '../types';
+import { ActionType, Sample, PlaybackParams, BiquadFilterType, Synth } from '../types';
 import { PADS_PER_BANK, TOTAL_BANKS, TOTAL_SAMPLES, LFO_SYNC_RATES, MOD_SOURCES, MOD_DESTINATIONS } from '../constants';
 
 const RAMP_TIME = 0.005; // 5ms ramp for all parameter changes to prevent clicks
@@ -633,12 +634,11 @@ export const useAudioEngine = () => {
         if (!synthGraphRef.current || !state.audioContext) return;
         const { nodes } = synthGraphRef.current;
         const now = state.audioContext.currentTime;
-        const { synthModMatrix, isModMatrixMuted } = state;
+        const { synthModMatrix, isModMatrixMuted, synth } = state;
         const effectiveMatrix = isModMatrixMuted ? {} : synthModMatrix;
 
         // 1. Reset all mod gains to 0 (to handle removed connections)
         Object.values(nodes.modGains).forEach(g => {
-            // Use setValueAtTime for immediate reset (essential for Clear button)
             g.gain.cancelScheduledValues(now);
             g.gain.setValueAtTime(0, now);
         });
@@ -649,30 +649,26 @@ export const useAudioEngine = () => {
                 const gainNode = nodes.modGains[`${source}_${dest}`];
                 if (gainNode) {
                     let scaledAmount = amount;
-                    // Apply scaling based on destination type to make modulation audible
                     if (dest.includes('Pitch')) {
-                        // 1.0 = 1 Octave (1200 cents)
                         scaledAmount = amount * 1200; 
                     } else if (dest.includes('Cutoff')) {
-                        // 1.0 = 2400 Hz range approx
                         scaledAmount = amount * 2400;
                     } else if (dest.includes('FM')) {
-                        // 1.0 = 2000 Hz modulation depth
                         scaledAmount = amount * 2000;
                     } else if (dest.includes('Wave')) {
-                        // 1.0 = 5.0 gain (significant distortion change)
                         scaledAmount = amount * 5;
                     } else if (dest.includes('Q')) {
                         scaledAmount = amount * 10;
                     }
                     
-                    // Use setValueAtTime for immediate response to fader
+                    const finalAmount = scaledAmount * synth.modWheel;
+                    
                     gainNode.gain.cancelScheduledValues(now);
-                    gainNode.gain.setValueAtTime(scaledAmount, now);
+                    gainNode.gain.setValueAtTime(finalAmount, now);
                 }
             });
         });
-    }, [state.synthModMatrix, state.isModMatrixMuted, state.audioContext]);
+    }, [state.synthModMatrix, state.isModMatrixMuted, state.synth.modWheel, state.audioContext, state.synth]);
 
 
     // --- ARCHITECTURAL FIX: Effect for handling waveform changes safely ---
@@ -1039,6 +1035,9 @@ export const useAudioEngine = () => {
         if (lfoIndex === 0) {
             newLfoNode.connect(synthGraph.lfo1_ws1_modGain);
             newLfoNode.connect(synthGraph.lfo1_ws2_modGain);
+            newLfoNode.connect(synthGraph.lfo1Analyser);
+        } else {
+            newLfoNode.connect(synthGraph.lfo2Analyser);
         }
         
         newLfoNode.start(time);
@@ -1050,8 +1049,8 @@ export const useAudioEngine = () => {
         }
     }, []);
 
-    const playSynthNote = useCallback((relativeDetune: number, scheduleTime: number) => {
-        const { audioContext: ctx, synth: currentSynth } = stateRef.current;
+    const playSynthNote = useCallback((relativeDetune: number, scheduleTime: number, params?: Partial<Pick<Synth, 'modWheel'>>) => {
+        const { audioContext: ctx, synth: currentSynth, synthModMatrix, isModMatrixMuted } = stateRef.current;
         const synthGraph = synthGraphRef.current;
         if (!ctx || !synthGraph) return;
     
@@ -1059,32 +1058,51 @@ export const useAudioEngine = () => {
         const effectiveTime = scheduleTime === 0 ? now : scheduleTime;
         const { osc1, osc2, oscMix, filter, filterEnv, ampEnv, globalGateTime } = currentSynth;
         
-        // Gate handling for overlapping notes (Legato)
-        if (activeNoteRef.current && effectiveTime < activeNoteRef.current.gateEndTime) {
-             // Legato logic could go here, but for now we just retrigger
-        }
-        
         const gateEndTime = effectiveTime + globalGateTime;
         activeNoteRef.current = { gateEndTime };
 
         const { nodes } = synthGraph;
+
+        // Determine which modWheel value to use for the NOTE ON event.
+        const noteOnModWheelValue = params?.modWheel !== undefined ? params.modWheel : currentSynth.modWheel;
+        // The value to return to after the note is the current global value from the synth state.
+        const noteOffModWheelValue = currentSynth.modWheel;
+
+        // Apply scheduled, per-note modulation based on the matrix
+        const effectiveMatrix = isModMatrixMuted ? {} : synthModMatrix;
+        Object.entries(effectiveMatrix).forEach(([source, dests]) => {
+            Object.entries(dests).forEach(([dest, amount]) => {
+                const gainNode = nodes.modGains[`${source}_${dest}`];
+                if (gainNode) {
+                    let scaledAmount = amount;
+                    if (dest.includes('Pitch')) scaledAmount = amount * 1200;
+                    else if (dest.includes('Cutoff')) scaledAmount = amount * 2400;
+                    else if (dest.includes('FM')) scaledAmount = amount * 2000;
+                    else if (dest.includes('Wave')) scaledAmount = amount * 5;
+                    else if (dest.includes('Q')) scaledAmount = amount * 10;
+                    
+                    const finalAmountNoteOn = scaledAmount * noteOnModWheelValue;
+                    const finalAmountNoteOff = scaledAmount * noteOffModWheelValue;
+
+                    gainNode.gain.cancelScheduledValues(effectiveTime);
+                    gainNode.gain.setValueAtTime(finalAmountNoteOn, effectiveTime);
+                    // Schedule the modulation to return to the global state's level when the note's gate closes.
+                    gainNode.gain.setValueAtTime(finalAmountNoteOff, gateEndTime);
+                }
+            });
+        });
         
-        // --- NOTE PARAMS (Static per note) ---
-        // STATIC FM DEPTH (The knobs on the OSC tabs)
-        // osc2.fmDepth controls "FM 2>1" -> Oscillator 2 modulates Oscillator 1
-        // This targets fm1Gain (which connects Osc2 to Osc1)
         nodes.fm1Gain.gain.setValueAtTime(osc2.fmDepth, effectiveTime);
-        
-        // osc1.fmDepth controls "FM 1>2" -> Oscillator 1 modulates Oscillator 2
-        // This targets fm2Gain (which connects Osc1 to Osc2)
         nodes.fm2Gain.gain.setValueAtTime(osc1.fmDepth, effectiveTime);
+        
+        nodes.lfo1_ws1_modGain.gain.cancelScheduledValues(effectiveTime);
+        nodes.lfo1_ws1_modGain.gain.setValueAtTime(((osc1.wsLfoAmount || 0) * 5) * noteOnModWheelValue, effectiveTime);
+        nodes.lfo1_ws1_modGain.gain.setValueAtTime(((osc1.wsLfoAmount || 0) * 5) * noteOffModWheelValue, gateEndTime);
 
-        // Apply fixed LFO amounts with 5x scaling as requested
-        nodes.lfo1_ws1_modGain.gain.setValueAtTime((osc1.wsLfoAmount || 0) * 5, effectiveTime);
-        // FIX: Correctly access the gain node for LFO1 -> WS2
-        nodes.lfo1_ws2_modGain.gain.setValueAtTime((osc2.wsLfoAmount || 0) * 5, effectiveTime);
+        nodes.lfo1_ws2_modGain.gain.cancelScheduledValues(effectiveTime);
+        nodes.lfo1_ws2_modGain.gain.setValueAtTime(((osc2.wsLfoAmount || 0) * 5) * noteOnModWheelValue, effectiveTime);
+        nodes.lfo1_ws2_modGain.gain.setValueAtTime(((osc2.wsLfoAmount || 0) * 5) * noteOffModWheelValue, gateEndTime);
 
-        // --- Set Oscillator Parameters ---
         if (nodes.oscSource1 instanceof OscillatorNode) {
             nodes.oscSource1.detune.setValueAtTime((osc1.octave * 1200) + osc1.detune + relativeDetune, effectiveTime);
         }
@@ -1092,28 +1110,22 @@ export const useAudioEngine = () => {
             nodes.oscSource2.detune.setValueAtTime((osc2.octave * 1200) + osc2.detune + relativeDetune, effectiveTime);
         }
         
-        // Mixer
         nodes.osc1Gain.gain.setValueAtTime(1 - oscMix, effectiveTime);
         nodes.osc2Gain.gain.setValueAtTime(oscMix, effectiveTime);
-
-        // Waveshaper Amounts
+        // FIX: The .setValueAtTime method must be called on the .gain AudioParam of a GainNode, not the node itself. This fixes errors on this and the following line.
         nodes.shaper1InputGain.gain.setValueAtTime(osc1.waveshapeAmount * 5 + 1, effectiveTime);
         nodes.shaper2InputGain.gain.setValueAtTime(osc2.waveshapeAmount * 5 + 1, effectiveTime);
 
-        // --- Filter Parameters ---
         const baseCutoff = filter.cutoff;
         nodes.filterNode1.frequency.setValueAtTime(baseCutoff, effectiveTime);
         nodes.filterNode2.frequency.setValueAtTime(baseCutoff, effectiveTime);
         nodes.filterNode1.Q.setValueAtTime(filter.resonance, effectiveTime);
         nodes.filterNode2.Q.setValueAtTime(filter.resonance, effectiveTime);
         
-        // --- Filter Envelope Triggering ---
-        // 1. Direct Envelope -> Filter Frequency
         const envAmt = filter.envAmount;
         const startFreq = baseCutoff;
         const peakFreq = Math.max(20, Math.min(20000, startFreq + envAmt));
         const sustainFreq = Math.max(20, Math.min(20000, startFreq + (envAmt * filterEnv.sustain)));
-        
         const tAttack = effectiveTime + Math.max(0.005, filterEnv.attack);
         const tDecay = tAttack + Math.max(0.005, filterEnv.decay);
         
@@ -1124,31 +1136,21 @@ export const useAudioEngine = () => {
             param.linearRampToValueAtTime(sustainFreq, tDecay);
         });
 
-        // 2. Filter Envelope as Modulation Source
-        // We automate the gain of the signal coming from the constant source.
         const feGain = nodes.filterEnvGain.gain;
         feGain.cancelScheduledValues(effectiveTime);
         feGain.setValueAtTime(0, effectiveTime);
-        feGain.linearRampToValueAtTime(1, tAttack); // Peak at 1 (full modulation depth)
+        feGain.linearRampToValueAtTime(1, tAttack);
         feGain.linearRampToValueAtTime(filterEnv.sustain, tDecay);
         
-        // --- Amp Envelope Triggering ---
         const vcaGain = nodes.vca.gain;
         vcaGain.cancelScheduledValues(effectiveTime);
         vcaGain.setValueAtTime(0, effectiveTime);
-        
-        // Simple Attack-Decay/Gate envelope for Amp
         const ampAttackTime = 0.005;
         const ampPeakTime = effectiveTime + ampAttackTime;
         const ampDecayEndTime = ampPeakTime + ampEnv.decay;
-        
         vcaGain.linearRampToValueAtTime(1, ampPeakTime);
-        
-        // If globalGateTime implies a gate, we should sustain?
-        // But the type `SynthAmpEnvelope` only has `decay`.
-        // We treat it as a percussive AD envelope.
         vcaGain.exponentialRampToValueAtTime(0.001, ampDecayEndTime);
-        vcaGain.linearRampToValueAtTime(0, ampDecayEndTime + 0.01); // Ensure 0
+        vcaGain.linearRampToValueAtTime(0, ampDecayEndTime + 0.01);
 
     }, []);
 
@@ -1182,7 +1184,6 @@ export const useAudioEngine = () => {
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
             
-            // LOCAL FLAG to prevent multiple starts in the same session
             let recordingTriggered = false;
  
             mediaRecorder.ondataavailable = (event) => {
@@ -1193,11 +1194,9 @@ export const useAudioEngine = () => {
  
             mediaRecorder.onstop = () => {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                // FIX: Using a locale-independent time format to avoid potential errors.
                 const timeString = new Date().toTimeString().split(' ')[0];
                 loadSampleFromBlob(audioBlob, activeSampleId, `Rec ${timeString}`);
                 
-                // Cleanup
                 stream.getTracks().forEach(track => track.stop());
                 if (sourceNodeRef.current) {
                     sourceNodeRef.current.disconnect();
@@ -1215,7 +1214,6 @@ export const useAudioEngine = () => {
                 dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
             };
  
-            // Input Monitoring for Threshold
             const source = ctx.createMediaStreamSource(stream);
             sourceNodeRef.current = source;
             const analyser = ctx.createAnalyser();
@@ -1226,11 +1224,9 @@ export const useAudioEngine = () => {
             const bufferLength = analyser.frequencyBinCount;
             const dataArray = new Uint8Array(bufferLength);
             
-            // Set Armed State initially
             dispatch({ type: ActionType.SET_ARMED_STATE, payload: true });
             
             const checkAudioLevel = () => {
-                // If analyzer is disconnected, stop loop
                 if (!analyserRef.current) return;
                 
                 analyser.getByteTimeDomainData(dataArray);
@@ -1242,12 +1238,8 @@ export const useAudioEngine = () => {
                     if (Math.abs(y) > max) max = Math.abs(y);
                 }
                 
-                // Access fresh state from ref to avoid closures with stale state
                 const { recordingThreshold: currentThreshold } = stateRef.current;
                 
-                // Trigger logic:
-                // 1. Must NOT have started locally in this function scope (prevents race conditions)
-                // 2. Check threshold
                 if (!recordingTriggered) {
                     if (max > currentThreshold) {
                         recordingTriggered = true;
@@ -1255,13 +1247,11 @@ export const useAudioEngine = () => {
                         dispatch({ type: ActionType.SET_RECORDING_STATE, payload: true });
                         dispatch({ type: ActionType.SET_ARMED_STATE, payload: false });
                         
-                        // Once started, we don't need to monitor for trigger anymore
                         if (animationFrameRef.current) {
                             cancelAnimationFrame(animationFrameRef.current);
                             animationFrameRef.current = null;
                         }
                     } else {
-                        // Keep checking
                         animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
                     }
                 }
@@ -1278,14 +1268,12 @@ export const useAudioEngine = () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop();
         } else {
-             // Stop stream if we were armed but didn't record
              if (streamRef.current) {
                  streamRef.current.getTracks().forEach(track => track.stop());
              }
              if (animationFrameRef.current) {
                  cancelAnimationFrame(animationFrameRef.current);
              }
-             // Cleanup refs manually since onstop won't fire if we didn't record
              if (sourceNodeRef.current) {
                 sourceNodeRef.current.disconnect();
                 sourceNodeRef.current = null;
@@ -1321,7 +1309,6 @@ export const useAudioEngine = () => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            // FIX: Using a locale-independent time format for consistency.
             const timeString = new Date().toTimeString().split(' ')[0];
             a.download = `Master - ${timeString}.wav`;
             document.body.appendChild(a);
@@ -1353,6 +1340,6 @@ export const useAudioEngine = () => {
         stopRecording,
         startMasterRecording,
         stopMasterRecording,
-        lfoAnalysers: lfoAnalysersRef // Expose analysers
+        lfoAnalysers: lfoAnalysersRef
     };
 };

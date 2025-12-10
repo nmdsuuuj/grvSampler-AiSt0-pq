@@ -9,6 +9,7 @@ interface FaderProps {
   step: number;
   defaultValue: number;
   displayValue?: number;
+  displayString?: string;
   displayPrecision?: number;
   isVertical?: boolean;
   hideInfo?: boolean;
@@ -17,7 +18,7 @@ interface FaderProps {
 
 const Fader: React.FC<FaderProps> = ({ 
   label, value, onChange, min, max, step, defaultValue, 
-  displayValue, displayPrecision = 2, isVertical = false, 
+  displayValue, displayString, displayPrecision = 2, isVertical = false, 
   hideInfo = false, hideValue = false
 }) => {
   const [internalValue, setInternalValue] = useState(value);
@@ -115,9 +116,14 @@ const Fader: React.FC<FaderProps> = ({
           />
           {!hideInfo && (
             <div className={`${labelContainerClasses} ${isVertical ? verticalLabelClasses : horizontalLabelClasses}`}>
-                {label && <span>{label}</span>}
-                {/* FIX: Ensure valueToDisplay is a valid number before calling toFixed to prevent crashes if it's NaN. */}
-                {!hideValue && <span>{isFinite(valueToDisplay) ? valueToDisplay.toFixed(displayPrecision) : '...'}</span>}
+                {label && <span className="truncate">{label}</span>}
+                {!hideValue && (
+                  <span className="truncate">
+                    {displayString !== undefined
+                      ? displayString
+                      : isFinite(valueToDisplay) ? valueToDisplay.toFixed(displayPrecision) : '...'}
+                  </span>
+                )}
             </div>
           )}
       </div>
