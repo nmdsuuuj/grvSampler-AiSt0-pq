@@ -115,7 +115,7 @@ const SampleView: React.FC<SampleViewProps> = ({
 
     const handleSaveBankKit = async () => {
         if (!bankKitName.trim()) {
-            alert('バンクキット名を入力してください。');
+            dispatch({ type: ActionType.SHOW_TOAST, payload: 'バンクキット名を入力してください。' });
             return;
         }
         
@@ -129,7 +129,7 @@ const SampleView: React.FC<SampleViewProps> = ({
             samples: samplesToStorable(bankSamples),
         };
         await db.bankKits.add(kit);
-        alert(`バンクキット「${kit.name}」を保存しました。`);
+        dispatch({ type: ActionType.SHOW_TOAST, payload: `バンクキット「${kit.name}」を保存しました。` });
         refreshBankKits();
     };
 
@@ -147,7 +147,8 @@ const SampleView: React.FC<SampleViewProps> = ({
                 samples: newSamples
             }
         });
-        alert(`バンクキット「${kit.name}」をバンク ${activeSampleBank === 3 ? 'SYNTH' : String.fromCharCode(65 + activeSampleBank)} に読み込みました。`);
+        const bankLabel = activeSampleBank === 3 ? 'SYNTH' : String.fromCharCode(65 + activeSampleBank);
+        dispatch({ type: ActionType.SHOW_TOAST, payload: `バンクキット「${kit.name}」をバンク ${bankLabel} に読み込みました。` });
     }, [audioContext, activeSampleBank, dispatch]);
 
     const handleDeleteBankKit = async (kitId: number) => {
@@ -181,7 +182,7 @@ const SampleView: React.FC<SampleViewProps> = ({
 
     const handleExport = useCallback(() => {
         if (!activeSample.buffer) {
-            alert("No audio content to export.");
+            dispatch({ type: ActionType.SHOW_TOAST, payload: "エクスポートするオーディオコンテンツがありません。" });
             return;
         }
         const wavBlob = encodeWav(activeSample.buffer);
@@ -193,7 +194,7 @@ const SampleView: React.FC<SampleViewProps> = ({
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-    }, [activeSample.buffer, activeSample.name]);
+    }, [activeSample.buffer, activeSample.name, dispatch]);
 
     const handleFileImportClick = () => fileInputRef.current?.click();
 

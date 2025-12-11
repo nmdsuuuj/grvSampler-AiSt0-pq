@@ -526,6 +526,7 @@ const initialState: AppState = {
     selectedSeqStep: null,
     projectLoadCount: 0,
     isLoading: true, // Start in loading state
+    toastMessage: null,
 };
 
 const appReducer = (state: AppState, action: Action): AppState => {
@@ -1501,6 +1502,10 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, isModWheelLockMuted: !(state.isModWheelLockMuted ?? false) };
         case ActionType.SET_IS_LOADING:
             return { ...state, isLoading: action.payload };
+        case ActionType.SHOW_TOAST:
+            return { ...state, toastMessage: action.payload };
+        case ActionType.HIDE_TOAST:
+            return { ...state, toastMessage: null };
         default:
             return state;
     }
@@ -1555,7 +1560,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const propertiesToDelete: (keyof AppState)[] = [
                 'audioContext', 'isInitialized', 'isPlaying', 'isRecording', 
                 'isArmed', 'currentSteps', 'samples', 'grooves', 'isLoading',
-                'isMasterRecording', 'isMasterRecArmed'
+                'isMasterRecording', 'isMasterRecArmed', 'toastMessage'
             ];
             propertiesToDelete.forEach(prop => delete (stateToSave as Partial<AppState>)[prop]);
 

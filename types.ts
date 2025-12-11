@@ -227,6 +227,7 @@ export interface AppState {
     selectedSeqStep: number | null;
     projectLoadCount: number; // For seamless project loading
     isLoading: boolean; // For session restore feedback
+    toastMessage: string | null;
 }
 
 export enum ActionType {
@@ -299,6 +300,8 @@ export enum ActionType {
     SET_SELECTED_SEQ_STEP,
     TOGGLE_MOD_WHEEL_LOCK_MUTE,
     SET_IS_LOADING, // For session restore
+    SHOW_TOAST,
+    HIDE_TOAST,
 }
 
 export type Action =
@@ -370,4 +373,6 @@ export type Action =
     | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset }
     | { type: ActionType.SET_SELECTED_SEQ_STEP; payload: number | null }
     | { type: ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE }
-    | { type: ActionType.SET_IS_LOADING; payload: boolean };
+    | { type: ActionType.SET_IS_LOADING; payload: boolean }
+    | { type: ActionType.SHOW_TOAST; payload: string }
+    | { type: ActionType.HIDE_TOAST };

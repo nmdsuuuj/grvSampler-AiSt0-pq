@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { db, Project, StorableSample, SampleKit, BankPreset, audioBufferToStorable, storableToAudioBuffer } from '../../db';
@@ -183,7 +184,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
 
     const handleSaveProject = async () => {
         if (!projectName.trim()) {
-            alert('プロジェクト名を入力してください。');
+            dispatch({ type: ActionType.SHOW_TOAST, payload: 'プロジェクト名を入力してください。' });
             return;
         }
         const stateToSave = { ...state };
@@ -191,7 +192,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         const propertiesToDelete: (keyof AppState)[] = [
             'audioContext', 'isInitialized', 'isPlaying', 'isRecording', 
             'isArmed', 'currentSteps', 'samples', 'grooves', 'isLoading',
-            'isMasterRecording', 'isMasterRecArmed'
+            'isMasterRecording', 'isMasterRecArmed', 'toastMessage'
         ];
         propertiesToDelete.forEach(prop => delete (stateToSave as Partial<AppState>)[prop]);
         
@@ -199,11 +200,10 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
             name: projectName.trim(),
             createdAt: new Date(),
             state: stateToSave,
-// FIX: Correctly convert the array of Samples to an array of StorableSamples.
             samples: samplesToStorableArray(state.samples),
         };
         await db.projects.add(project);
-        alert(`プロジェクト「${project.name}」を保存しました。`);
+        dispatch({ type: ActionType.SHOW_TOAST, payload: `プロジェクト「${project.name}」を保存しました。` });
         refreshProjects();
     };
 
@@ -213,11 +213,10 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
             if (isPlaying) {
                 flushAllSources();
             }
-// FIX: Correctly convert the array of StorableSamples back to an array of Samples.
             const loadedSamples = storableToSamplesArray(project.samples, audioContext);
             const loadedState = { ...project.state, samples: loadedSamples };
             dispatch({ type: ActionType.LOAD_PROJECT_STATE, payload: loadedState });
-            alert(`プロジェクト「${project.name}」を読み込みました。`);
+            dispatch({ type: ActionType.SHOW_TOAST, payload: `プロジェクト「${project.name}」を読み込みました。` });
         }
     }, [audioContext, dispatch, isPlaying, flushAllSources]);
 
@@ -230,27 +229,25 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
     
     const handleSaveSampleKit = async () => {
         if (!sampleKitName.trim()) {
-            alert('サンプルキット名を入力してください。');
+            dispatch({ type: ActionType.SHOW_TOAST, payload: 'サンプルキット名を入力してください。' });
             return;
         }
         const kit: SampleKit = {
             name: sampleKitName.trim(),
             createdAt: new Date(),
-// FIX: Correctly convert the array of Samples to an array of StorableSamples.
             samples: samplesToStorableArray(samples),
         };
         await db.sampleKits.add(kit);
-        alert(`サンプルキット「${kit.name}」を保存しました。`);
+        dispatch({ type: ActionType.SHOW_TOAST, payload: `サンプルキット「${kit.name}」を保存しました。` });
         refreshSampleKits();
     };
 
     const handleLoadSampleKit = useCallback(async (kitId: number) => {
         const kit = await db.sampleKits.get(kitId);
         if (kit && audioContext) {
-// FIX: Correctly convert the array of StorableSamples back to an array of Samples.
             const loadedSamples = storableToSamplesArray(kit.samples, audioContext);
             dispatch({ type: ActionType.SET_SAMPLES, payload: loadedSamples });
-            alert(`サンプルキット「${kit.name}」を読み込みました。`);
+            dispatch({ type: ActionType.SHOW_TOAST, payload: `サンプルキット「${kit.name}」を読み込みました。` });
         }
     }, [dispatch, audioContext]);
 
@@ -263,7 +260,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
 
     const handleSaveBankPreset = async () => {
         if (!bankPresetName.trim()) {
-            alert('バンクプリセット名を入力してください。');
+            dispatch({ type: ActionType.SHOW_TOAST, payload: 'バンクプリセット名を入力してください。' });
             return;
         }
         const startSampleId = activeSampleBank * PADS_PER_BANK;
@@ -285,7 +282,6 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         const preset: BankPreset = {
             name: bankPresetName.trim(),
             createdAt: new Date(),
-// FIX: Correctly convert the array of Samples to an array of StorableSamples.
             samples: samplesToStorableArray(bankSamples),
             sequences: JSON.parse(JSON.stringify(bankSequences)),
             paramLocks: JSON.parse(JSON.stringify(bankParamLocks)),
@@ -294,7 +290,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         };
 
         await db.bankPresets.add(preset);
-        alert(`バンクプリセット「${preset.name}」を保存しました。`);
+        dispatch({ type: ActionType.SHOW_TOAST, payload: `バンクプリセット「${preset.name}」を保存しました。` });
         refreshBankPresets();
     };
 
@@ -303,7 +299,6 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         const preset = await db.bankPresets.get(presetId);
         if (!preset) return;
 
-// FIX: Correctly convert the array of StorableSamples back to an array of Samples.
         const loadedSamples = storableToSamplesArray(preset.samples, audioContext);
 
         const presetData: BankPresetData = {
@@ -319,7 +314,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
             payload: { bankIndex: activeSampleBank, presetData }
         });
 
-        alert(`プリセット「${preset.name}」をバンク ${String.fromCharCode(65 + activeSampleBank)} に読み込みました。`);
+        dispatch({ type: ActionType.SHOW_TOAST, payload: `プリセット「${preset.name}」をバンク ${String.fromCharCode(65 + activeSampleBank)} に読み込みました。` });
 
     }, [audioContext, activeSampleBank, dispatch]);
     

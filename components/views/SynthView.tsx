@@ -78,7 +78,7 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
             type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX,
             payload: { index: selectedPresetSlot, name, synth, matrix: synthModMatrix }
         });
-        alert(`Saved preset "${name}" to slot ${selectedPresetSlot + 1}.`);
+        dispatch({ type: ActionType.SHOW_TOAST, payload: `プリセット「${name}」をスロット ${selectedPresetSlot + 1} に保存しました。` });
         setSelectedPresetSlot(null);
     };
 

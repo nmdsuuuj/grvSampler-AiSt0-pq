@@ -2,6 +2,20 @@
 
 This document tracks the major changes, feature implementations, and requirement adjustments throughout the development of the Groove Sampler application.
 
+## Version 0.6.0 - The Live Performance Update
+
+This update focuses on improving the workflow for live performance and continuous music creation by enabling seamless project loading without interrupting playback.
+
+### Implemented Features
+- **Seamless Project Loading**:
+  - **Core Change**: Projects can now be loaded from the `PROJECT` tab while the sequencer is playing. The application will no longer stop playback.
+  - **Functionality**: When a new project is loaded during playback, the sequencer immediately syncs to the new project's state and continues playing, providing a seamless transition.
+  - **Use Case**: This is critical for live performance, allowing for smooth transitions between different songs or sections stored as separate projects.
+- **Clean Audio Transitions**:
+  - A new audio "flush" function has been implemented. When a project is loaded during playback, all currently playing and scheduled sounds from the old project are instantly silenced to prevent audio clashes and ensure a clean switch.
+- **Bug Fixes**:
+  - **Project/Kit Data Handling**: Resolved critical type errors related to saving and loading audio data (Samples, Kits, Presets) to and from the database. This improves the reliability of all project management features.
+
 ## Known Issues
 
 - **Preset Drum Kits (`Load Kit`)**: This feature has been removed due to persistent and critical errors with audio data decoding (`atob` and `Unable to decode audio data`). The feature will be re-evaluated for a future release with a more robust implementation.

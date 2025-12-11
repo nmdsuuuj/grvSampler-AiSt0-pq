@@ -30,6 +30,7 @@ export interface SubTab {
 
 const App: React.FC = () => {
   const { state, dispatch } = useContext(AppContext);
+  const { toastMessage } = state;
   const [activeView, setActiveView] = useState<View>('OTO');
   const [subTabs, setSubTabs] = useState<SubTab[]>([]);
   
@@ -69,6 +70,16 @@ const App: React.FC = () => {
   useEffect(() => {
     dispatch({ type: ActionType.SET_SELECTED_SEQ_STEP, payload: null });
   }, [activeView, dispatch]);
+
+  // Toast auto-dismiss logic
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        dispatch({ type: ActionType.HIDE_TOAST });
+      }, 3000); // Hide after 3 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage, dispatch]);
 
   const { 
     playSample, 
@@ -432,6 +443,11 @@ const App: React.FC = () => {
         </div>
         <GlobalKeyboard onNotePlay={handleNotePlay} />
       </footer>
+       {toastMessage && (
+        <div className="toast-notification absolute bottom-36 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg text-sm z-50 whitespace-nowrap">
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 };
