@@ -11,7 +11,7 @@ interface PadProps {
   isRecording?: boolean;
   isArmed?: boolean;
   hasContent?: boolean;
-  padType?: 'sample' | 'pattern' | 'groove';
+  padType?: 'sample' | 'pattern' | 'groove' | 'snapshot';
 }
 
 const Pad: React.FC<PadProps> = ({
@@ -34,6 +34,9 @@ const Pad: React.FC<PadProps> = ({
     switch (padType) {
         case 'sample':
             colorClasses = 'bg-sky-400 border-sky-500 text-white ring-2 ring-sky-300 ring-offset-2 ring-offset-emerald-50';
+            break;
+        case 'snapshot':
+            colorClasses = 'bg-cyan-400 border-cyan-500 text-white ring-2 ring-cyan-300 ring-offset-2 ring-offset-emerald-50';
             break;
         case 'pattern':
         case 'groove':

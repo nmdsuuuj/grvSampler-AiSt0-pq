@@ -1,4 +1,5 @@
 
+
 export interface Groove {
     id: number;
     name: string;
@@ -176,6 +177,97 @@ export interface ModPatch {
     modMatrix: ModMatrix;
 }
 
+// --- Performance FX ---
+
+export type FXType = 'stutter' | 'glitch' | 'filter' | 'reverb';
+
+export interface FXAutomation {
+    active: boolean; // Is automation playback enabled?
+    recording: boolean; // Is currently recording?
+    data: { x: number; y: number }[]; // Time-series data points (0-1)
+    lengthSteps: number; // Length of loop in sequencer steps (e.g., 32, 64)
+    speed: number; // Playback speed multiplier (0.25, 0.5, 1, 2)
+    loopMode: 'loop' | 'oneShot';
+    startPoint: number; // 0-1, start position of the automation loop
+    endPoint: number; // 0-1, end position of the automation loop
+}
+
+export interface XYPad {
+    id: number;
+    x: number; // Current X value 0-1
+    y: number; // Current Y value 0-1
+    xParam: string; // Parameter name mapped to X
+    yParam: string; // Parameter name mapped to Y
+    automation: FXAutomation;
+}
+
+export interface FXSnapshot {
+    id: number;
+    active: boolean; // Is this snapshot slot filled?
+    params: any; // Stores the parameter state
+    xyPads: XYPad[]; // Stores the XY Pad states including automation
+}
+
+// Generic interface for an effect instance
+export interface PerformanceEffect<T> {
+    type: FXType;
+    isOn: boolean; // Hard bypass switch
+    bypassMode: 'hard' | 'soft'; // NEW: Hard = 0% CPU, Soft = Mute Input (Tails)
+    params: T;
+    xyPads: XYPad[]; // XY Pads for performance control
+    snapshots: FXSnapshot[]; // Instant recall slots (16)
+}
+
+export interface StutterParams {
+    division: number; // Index in the ODD_DIVISIONS array
+    speed: number; // -1 (Reverse) to 1 (Forward), 0 is stop
+    feedback: number; // 0-1
+    mix: number; // 0-1
+}
+
+export interface GlitchParams {
+    crush: number; // 0-1 (Bit reduction)
+    rate: number; // 0-1 (Sample rate reduction)
+    shuffle: number; // 0-1 (Random time displacement)
+    mix: number; // 0-1
+}
+
+export interface FilterFXParams {
+    type: 'lowpass' | 'highpass' | 'bandpass';
+    cutoff: number; // 0-1 (Mapped log)
+    resonance: number; // 0-1
+    lfoAmount: number; // 0-1
+    lfoRate: number; // Index in ODD_DIVISIONS
+    mix: number; // 0-1
+}
+
+export interface ReverbParams {
+    size: number; // 0-1 (Room size / decay)
+    damping: number; // 0-1 (HF damping)
+    mod: number; // 0-1 (Chorus mod on tails)
+    mix: number; // 0-1
+}
+
+export interface PerformanceChain {
+    slots: PerformanceEffect<any>[]; // Array of 4 independent slots
+    routing: number[]; // Array of slot indices (e.g. [0, 1, 2, 3]) representing processing order
+    globalSnapshots: GlobalFXSnapshot[]; // 16 Global Snapshots
+}
+
+export interface GlobalFXSnapshot {
+    id: number;
+    active: boolean;
+    chainState: {
+        slots: {
+            type: FXType;
+            params: any;
+            isOn: boolean;
+            bypassMode?: 'hard' | 'soft';
+        }[];
+        routing: number[];
+    };
+}
+
 
 export interface AppState {
     audioContext: AudioContext | null;
@@ -188,7 +280,7 @@ export interface AppState {
     currentSteps: number[];
     activeSampleId: number;
     activeSampleBank: number;
-    // "Live" groove settings, loaded from the active pattern
+    // "Live" groove settings, loaded from the active pattern for the active bank.
     activeGrooveIds: number[]; 
     grooveDepths: number[];
     activeKey: number; // 0-11 for C-B
@@ -224,6 +316,9 @@ export interface AppState {
     isModWheelLockMuted?: boolean;
     synthPresets: (SynthPreset | null)[];
     synthModPatches: (ModPatch | null)[];
+    // Performance FX State
+    performanceFx: PerformanceChain;
+    
     selectedSeqStep: number | null;
     projectLoadCount: number; // For seamless project loading
     isLoading: boolean; // For session restore feedback
@@ -299,7 +394,18 @@ export enum ActionType {
     LOAD_SYNTH_PRESET,
     SET_SELECTED_SEQ_STEP,
     TOGGLE_MOD_WHEEL_LOCK_MUTE,
-    SET_IS_LOADING, // For session restore
+    // Performance FX Actions
+    SET_FX_TYPE, 
+    UPDATE_FX_PARAM,
+    UPDATE_FX_XY, // NEW
+    SET_FX_ROUTING,
+    TOGGLE_FX_BYPASS,
+    SAVE_FX_SNAPSHOT,
+    LOAD_FX_SNAPSHOT,
+    SAVE_GLOBAL_FX_SNAPSHOT,
+    LOAD_GLOBAL_FX_SNAPSHOT,
+    // System
+    SET_IS_LOADING, 
     SHOW_TOAST,
     HIDE_TOAST,
 }
@@ -373,6 +479,17 @@ export type Action =
     | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset }
     | { type: ActionType.SET_SELECTED_SEQ_STEP; payload: number | null }
     | { type: ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE }
+    // Performance FX Actions
+    | { type: ActionType.SET_FX_TYPE; payload: { slotIndex: number; type: FXType } } 
+    | { type: ActionType.UPDATE_FX_PARAM; payload: { slotIndex: number; param: string; value: number | string } }
+    | { type: ActionType.UPDATE_FX_XY; payload: { slotIndex: number; padIndex: number; x: number; y: number } } // NEW
+    | { type: ActionType.SET_FX_ROUTING; payload: number[] }
+    | { type: ActionType.TOGGLE_FX_BYPASS; payload: number }
+    | { type: ActionType.SAVE_FX_SNAPSHOT; payload: { slotIndex: number; index: number } }
+    | { type: ActionType.LOAD_FX_SNAPSHOT; payload: { slotIndex: number; index: number } }
+    | { type: ActionType.SAVE_GLOBAL_FX_SNAPSHOT; payload: { index: number } }
+    | { type: ActionType.LOAD_GLOBAL_FX_SNAPSHOT; payload: { index: number } }
+    // System
     | { type: ActionType.SET_IS_LOADING; payload: boolean }
     | { type: ActionType.SHOW_TOAST; payload: string }
     | { type: ActionType.HIDE_TOAST };

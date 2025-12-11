@@ -1,4 +1,6 @@
-import { Groove, BiquadFilterType } from "./types";
+
+
+import { Groove, BiquadFilterType, PerformanceChain, FXAutomation, PerformanceEffect, FXType } from "./types";
 
 export const PAD_SIZE = 'w-8 h-8';
 export const TOTAL_BANKS = 4;
@@ -177,3 +179,106 @@ export const MOD_DESTINATIONS = [
     'filterCutoff',
     'filterQ'
 ];
+
+// --- Performance FX Constants ---
+
+// Extended Division List including odd/tuplet/dotted
+export const EXTENDED_DIVISIONS = [
+    { label: '4 Bars', value: 16 },
+    { label: '2 Bars', value: 8 },
+    { label: '1 Bar', value: 4 },
+    { label: '1/2D', value: 3 },
+    { label: '1/2', value: 2 },
+    { label: '1/4D', value: 1.5 },
+    { label: '1/3 (4/3)', value: 4/3 }, // Half note triplet? No, 1 bar / 3 = 4/3 beat length
+    { label: '1/4', value: 1 },
+    { label: '1/8D', value: 0.75 },
+    { label: '1/5', value: 4/5 }, // 5 over 4
+    { label: '1/6', value: 2/3 }, // Quarter note triplet
+    { label: '1/7', value: 4/7 },
+    { label: '1/8', value: 0.5 },
+    { label: '1/9', value: 4/9 },
+    { label: '1/16D', value: 0.375 },
+    { label: '1/11', value: 4/11 },
+    { label: '1/12', value: 1/3 }, // Eighth note triplet
+    { label: '1/13', value: 4/13 },
+    { label: '1/16', value: 0.25 },
+    { label: '1/24', value: 1/6 }, // 16th note triplet
+    { label: '1/32', value: 0.125 },
+    { label: '1/48', value: 1/12 },
+    { label: '1/64', value: 0.0625 },
+];
+
+export const FX_TYPES = ['stutter', 'glitch', 'filter', 'reverb'];
+
+const createDefaultAutomation = (): FXAutomation => ({
+    active: false,
+    recording: false,
+    data: [],
+    lengthSteps: 32,
+    speed: 1,
+    loopMode: 'loop', 
+    startPoint: 0,
+    endPoint: 1,
+});
+
+// Factory to create effect instances based on type
+export const createDefaultEffect = (type: FXType): PerformanceEffect<any> => {
+    const baseEffect = {
+        type,
+        isOn: false,
+        bypassMode: 'soft' as const, // Default to soft bypass (tails)
+        snapshots: Array(16).fill({ active: false, params: {}, xyPads: [] }),
+    };
+
+    switch (type) {
+        case 'stutter':
+            return {
+                ...baseEffect,
+                params: { division: 12, speed: 1, feedback: 0.5, mix: 1 },
+                xyPads: [
+                    { id: 0, x: 0.5, y: 0.5, xParam: 'division', yParam: 'feedback', automation: createDefaultAutomation() },
+                    { id: 1, x: 0.5, y: 0.5, xParam: 'speed', yParam: 'mix', automation: createDefaultAutomation() }
+                ]
+            };
+        case 'glitch':
+            return {
+                ...baseEffect,
+                params: { crush: 0, rate: 0, shuffle: 0, mix: 1 },
+                xyPads: [
+                    { id: 0, x: 0, y: 0, xParam: 'crush', yParam: 'rate', automation: createDefaultAutomation() }
+                ]
+            };
+        case 'filter':
+            return {
+                ...baseEffect,
+                params: { type: 'lowpass', cutoff: 1, resonance: 0, lfoAmount: 0, lfoRate: 3, mix: 1 },
+                xyPads: [
+                    { id: 0, x: 1, y: 0, xParam: 'cutoff', yParam: 'resonance', automation: createDefaultAutomation() }
+                ]
+            };
+        case 'reverb':
+            return {
+                ...baseEffect,
+                params: { size: 0.5, damping: 0.5, mod: 0.2, mix: 0.3 },
+                xyPads: [
+                    { id: 0, x: 0.5, y: 0.3, xParam: 'size', yParam: 'mix', automation: createDefaultAutomation() }
+                ]
+            };
+        default:
+            throw new Error(`Unknown effect type: ${type}`);
+    }
+};
+
+export const DEFAULT_PERFORMANCE_FX: PerformanceChain = {
+    // Initialize 4 independent slots with a default configuration
+    slots: [
+        createDefaultEffect('filter'),
+        createDefaultEffect('stutter'),
+        createDefaultEffect('glitch'),
+        createDefaultEffect('reverb')
+    ],
+    // Default routing: Slot 0 -> Slot 1 -> Slot 2 -> Slot 3
+    routing: [0, 1, 2, 3], 
+    globalSnapshots: Array(16).fill({ active: false, chainState: {} }),
+};
