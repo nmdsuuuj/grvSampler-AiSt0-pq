@@ -997,6 +997,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     useEffect(() => {
         const loadSession = async () => {
+            // FIX: Check if the user has requested to always start with defaults (ignore previous session)
+            const startupMode = localStorage.getItem('groove_sampler_startup_mode');
+            
+            if (startupMode === 'user_default') {
+                console.log("Startup Mode: User Default (Ignoring Last Session)");
+                // We dispatch RESET_TO_USER_DEFAULT to ensure we are in the clean state preferred by the user
+                dispatch({ type: ActionType.RESET_TO_USER_DEFAULT });
+                dispatch({ type: ActionType.SET_IS_LOADING, payload: false });
+                setIsInitialLoadComplete(true);
+                return;
+            }
+
             try {
                 const sessionData = await db.session.get(0);
                 if (sessionData && state.audioContext) {

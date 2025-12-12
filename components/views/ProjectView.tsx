@@ -160,6 +160,24 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
     const [bankPresets, setBankPresets] = useState<BankPreset[]>([]);
     const [bankPresetName, setBankPresetName] = useState('New Bank Preset');
     const [isManualOpen, setIsManualOpen] = useState(false);
+    
+    // Startup Preference
+    const [startWithDefault, setStartWithDefault] = useState(false);
+
+    useEffect(() => {
+        const pref = localStorage.getItem('groove_sampler_startup_mode');
+        setStartWithDefault(pref === 'user_default');
+    }, []);
+
+    const toggleStartupMode = () => {
+        const newValue = !startWithDefault;
+        setStartWithDefault(newValue);
+        if (newValue) {
+            localStorage.setItem('groove_sampler_startup_mode', 'user_default');
+        } else {
+            localStorage.removeItem('groove_sampler_startup_mode');
+        }
+    };
 
     const refreshProjects = useCallback(async () => {
         const projs = await db.projects.orderBy('createdAt').reverse().toArray();
@@ -345,8 +363,6 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         
         // 3. Force-Save this "Clean" state to IndexedDB immediately.
         // This bypasses the 1-second auto-save debounce in AppContext.
-        // If the user refreshes the page right after this, they will get this clean state
-        // instead of the broken state that was previously auto-saved.
         const stateToSave = { ...state };
         const propertiesToDelete: (keyof AppState)[] = [
             'audioContext', 'isInitialized', 'isPlaying', 'isRecording', 
@@ -381,6 +397,19 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         localStorage.removeItem('groove_sampler_user_default_synth');
         dispatch({ type: ActionType.SHOW_TOAST, payload: 'デフォルト設定を工場出荷時にリセットしました。' });
     };
+    
+    // --- Emergency Reset ---
+    const handleDeleteSessionAndReload = async () => {
+        if(window.confirm('現在の自動保存セッションを完全に削除し、アプリをリロードします。保存していない変更は失われます。よろしいですか？')) {
+            try {
+                await db.session.clear();
+                window.location.reload();
+            } catch (e) {
+                console.error("Failed to clear session:", e);
+                window.location.reload();
+            }
+        }
+    };
 
     const renderListItem = (
         item: { id?: number; name: string; createdAt: Date }, 
@@ -410,6 +439,21 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
                     <button onClick={handleSaveUserDefaultSynth} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 rounded text-xs">現在の設定を保存<br/>(Save Current as Default)</button>
                     <button onClick={handleLoadUserDefaultSynth} className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded text-xs">デフォルト設定をロード<br/>(Apply & Force Save)</button>
                     <button onClick={handleClearUserDefaultSynth} className="bg-slate-400 hover:bg-slate-500 text-white font-bold py-2 rounded text-xs col-span-2">設定を初期化<br/>(Reset to Factory)</button>
+                </div>
+                
+                <div className="flex items-center justify-between border-t border-emerald-100 pt-2 mt-2">
+                    <label className="flex items-center space-x-2 text-xs font-bold text-slate-600 cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            checked={startWithDefault} 
+                            onChange={toggleStartupMode}
+                            className="form-checkbox h-4 w-4 text-emerald-500 rounded focus:ring-emerald-400"
+                        />
+                        <span>常にデフォルトで起動<br/><span className="text-[10px] font-normal text-slate-400">(前回の続きを無視)</span></span>
+                    </label>
+                    <button onClick={handleDeleteSessionAndReload} className="bg-rose-100 text-rose-600 border border-rose-200 hover:bg-rose-200 text-[10px] font-bold px-2 py-1 rounded">
+                        セッション削除<br/>& Reload
+                    </button>
                 </div>
             </div>
 
