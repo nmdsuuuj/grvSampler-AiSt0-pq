@@ -394,6 +394,7 @@ export enum ActionType {
     CLEAR_SYNTH_PRESET_AT_INDEX,
     LOAD_SYNTH_PRESET,
     SET_SYNTH_PRESET_LIST, // NEW
+    IMPORT_SYNTH_PRESETS, // NEW: Import entire bank
     SET_SELECTED_SEQ_STEP,
     TOGGLE_MOD_WHEEL_LOCK_MUTE,
     RESET_TO_USER_DEFAULT, // NEW
@@ -481,6 +482,7 @@ export type Action =
     | { type: ActionType.CLEAR_SYNTH_PRESET_AT_INDEX; payload: { index: number } }
     | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset }
     | { type: ActionType.SET_SYNTH_PRESET_LIST; payload: (SynthPreset | null)[] }
+    | { type: ActionType.IMPORT_SYNTH_PRESETS; payload: (SynthPreset | null)[] } // NEW
     | { type: ActionType.SET_SELECTED_SEQ_STEP; payload: number | null }
     | { type: ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE }
     | { type: ActionType.RESET_TO_USER_DEFAULT } // NEW

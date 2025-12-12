@@ -1,5 +1,5 @@
 
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useRef } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { ActionType, SynthPreset } from '../../types';
 import Fader from '../Fader';
@@ -28,6 +28,7 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
     const [selectedPresetSlot, setSelectedPresetSlot] = useState<number | null>(null);
     const [presetMode, setPresetMode] = useState<PresetMode>('LOAD');
     const [presetNameInput, setPresetNameInput] = useState('');
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         setSubTabs([
@@ -135,6 +136,56 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
     const handleMuteModWheelLock = () => {
         dispatch({ type: ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE });
     };
+    
+    // --- Bank Import/Export ---
+    const handleExportBank = () => {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(synthPresets));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "groove_sampler_synth_bank.json");
+        document.body.appendChild(downloadAnchorNode); // required for firefox
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+        dispatch({ type: ActionType.SHOW_TOAST, payload: 'Synth Preset Bank exported.' });
+    };
+
+    const handleImportBankClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleImportBankFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const json = e.target?.result as string;
+                const importedPresets = JSON.parse(json) as (SynthPreset | null)[];
+                
+                if (!Array.isArray(importedPresets) || importedPresets.length !== 128) {
+                    throw new Error("Invalid bank file format.");
+                }
+
+                // Update DB
+                await db.globalSynthPresets.clear();
+                const validPresets = importedPresets.filter(p => p !== null) as SynthPreset[];
+                await db.globalSynthPresets.bulkAdd(validPresets);
+
+                // Update State
+                dispatch({ type: ActionType.IMPORT_SYNTH_PRESETS, payload: importedPresets });
+                dispatch({ type: ActionType.SHOW_TOAST, payload: 'Synth Preset Bank imported successfully.' });
+
+            } catch (err) {
+                console.error("Failed to import bank:", err);
+                dispatch({ type: ActionType.SHOW_TOAST, payload: 'Failed to import bank. Invalid file.' });
+            }
+        };
+        reader.readAsText(file);
+        
+        if (event.target) event.target.value = ''; // Reset input
+    };
+
 
     const renderControlSection = (title: string, children: React.ReactNode, className: string = "") => (
         <div className={`bg-white shadow-md p-1.5 rounded-lg ${className}`}>
@@ -489,6 +540,8 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
             case 'PRESETS':
                  return (
                     <div className="p-1 h-full flex flex-col space-y-1">
+                        <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportBankFile} className="hidden" />
+                        
                         <div className="bg-white shadow-md p-1.5 rounded-lg space-y-2">
                             <h3 className="text-center font-bold text-slate-600 text-sm">Synth Presets</h3>
                             <div className="flex justify-between items-center">
@@ -541,8 +594,10 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
                                 );
                             })}
                         </div>
-                         <div className="bg-white shadow-md p-1.5 rounded-lg text-center">
-                            <button onClick={handleRandomizeAll} className="bg-sky-200 text-sky-800 text-xs font-bold px-4 py-2 rounded">Randomize All Synth Params</button>
+                         <div className="bg-white shadow-md p-1.5 rounded-lg text-center flex justify-between space-x-2">
+                            <button onClick={handleImportBankClick} className="flex-1 bg-amber-200 hover:bg-amber-300 text-amber-800 text-xs font-bold px-2 py-2 rounded">Import Bank (JSON)</button>
+                            <button onClick={handleExportBank} className="flex-1 bg-amber-200 hover:bg-amber-300 text-amber-800 text-xs font-bold px-2 py-2 rounded">Export Bank (JSON)</button>
+                            <button onClick={handleRandomizeAll} className="flex-1 bg-sky-200 hover:bg-sky-300 text-sky-800 text-xs font-bold px-2 py-2 rounded">Randomize All</button>
                         </div>
                     </div>
                 );

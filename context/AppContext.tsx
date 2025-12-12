@@ -31,19 +31,88 @@ const initialSynthState: Synth = {
     masterOctave: 0,
 };
 
+// FIX: Restored full list of factory presets to prevent data loss perception
 const factoryPresets: (SynthPreset | null)[] = [
-    // --- BASS ---
     {
         id: 0, name: 'Warm Saw Bass',
-        synth: { 
-            ...initialSynthState,
-            osc1: { type: 'Saw Down', octave: -2, detune: -8, fmDepth: 0, waveshapeAmount: 0, waveshapeType: 'Soft Clip', wsLfoAmount: 0, sync: false },
-            osc2: { type: 'Saw Down', octave: -2, detune: 8, fmDepth: 0, waveshapeAmount: 0, waveshapeType: 'Soft Clip', wsLfoAmount: 0, pitchEnvAmount: 0 },
-            filter: { type: 'Lowpass 24dB', cutoff: 120, resonance: 0.5, envAmount: 1000 },
-        },
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Saw Down', octave: -2, detune: -8 }, osc2: { ...initialSynthState.osc2, type: 'Saw Down', octave: -2, detune: 8 }, filter: { ...initialSynthState.filter, cutoff: 120, resonance: 0.5, envAmount: 1000 } },
         modMatrix: {}
     },
-    // ... (Factory presets truncated for brevity, standard array continues)
+    {
+        id: 1, name: 'Acid Bass',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Saw Up' }, osc2: { ...initialSynthState.osc2, type: 'Square', octave: -1 }, filter: { ...initialSynthState.filter, cutoff: 80, resonance: 15, envAmount: 3000 }, filterEnv: { ...initialSynthState.filterEnv, decay: 0.2 } },
+        modMatrix: {}
+    },
+    {
+        id: 2, name: 'Sub Bass',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Sine', octave: -2 }, osc2: { ...initialSynthState.osc2, type: 'Triangle', octave: -2 }, filter: { ...initialSynthState.filter, cutoff: 80 }, ampEnv: { ...initialSynthState.ampEnv, decay: 0.5 } },
+        modMatrix: {}
+    },
+    {
+        id: 3, name: 'Classic Lead',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Square', octave: 0 }, osc2: { ...initialSynthState.osc2, type: 'Saw Down', octave: 0, detune: 10 }, filter: { ...initialSynthState.filter, cutoff: 2000, resonance: 2 }, lfo1: { ...initialSynthState.lfo1, rate: 5, rateMode: 'hz' } },
+        modMatrix: { lfo1: { osc1Pitch: 0.05, osc2Pitch: 0.05 } }
+    },
+    {
+        id: 4, name: 'Detuned Saw',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Saw Down', octave: 0, detune: -15 }, osc2: { ...initialSynthState.osc2, type: 'Saw Down', octave: 0, detune: 15 }, oscMix: 0.5, filter: { ...initialSynthState.filter, cutoff: 5000 } },
+        modMatrix: {}
+    },
+    {
+        id: 5, name: 'Soft Pad',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Triangle', octave: 0 }, osc2: { ...initialSynthState.osc2, type: 'Sine', octave: 0, detune: 10 }, filter: { ...initialSynthState.filter, cutoff: 400, resonance: 0, envAmount: 200 }, filterEnv: { attack: 1.0, decay: 2.0, sustain: 0.5 }, ampEnv: { decay: 2.0 } },
+        modMatrix: {}
+    },
+    {
+        id: 6, name: 'String Pad',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'PWM', octave: 0 }, osc2: { ...initialSynthState.osc2, type: 'Saw Up', octave: 0, detune: 5 }, filter: { ...initialSynthState.filter, cutoff: 1500 }, lfo1: { ...initialSynthState.lfo1, rate: 2, rateMode: 'hz' } },
+        modMatrix: { lfo1: { filterCutoff: 0.1 } }
+    },
+    {
+        id: 7, name: 'Pluck Synth',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Square', octave: 0 }, osc2: { ...initialSynthState.osc2, type: 'Sine', octave: 1 }, filter: { ...initialSynthState.filter, cutoff: 200, envAmount: 4000 }, filterEnv: { attack: 0.001, decay: 0.3, sustain: 0 } },
+        modMatrix: {}
+    },
+    {
+        id: 8, name: 'FM Bell',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Sine', octave: 1, fmDepth: 2000 }, osc2: { ...initialSynthState.osc2, type: 'Sine', octave: 3 }, oscMix: 0.2, filter: { ...initialSynthState.filter, cutoff: 8000 }, ampEnv: { decay: 1.5 } },
+        modMatrix: { filterEnv: { osc1FM: -0.5 } }
+    },
+    {
+        id: 9, name: '8-Bit Lead',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Pulse 25%', octave: 0, waveshapeType: 'Bitcrush', waveshapeAmount: 0.8 }, osc2: { ...initialSynthState.osc2, type: 'Square', octave: -1 }, filter: { ...initialSynthState.filter, cutoff: 8000 } },
+        modMatrix: {}
+    },
+    {
+        id: 10, name: 'Wobble Bass',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Saw Down', octave: -2 }, osc2: { ...initialSynthState.osc2, type: 'Square', octave: -2, detune: 10 }, filter: { ...initialSynthState.filter, cutoff: 150, resonance: 10 }, lfo1: { ...initialSynthState.lfo1, rate: 4, rateMode: 'sync', syncTrigger: '1/4' } },
+        modMatrix: { lfo1: { filterCutoff: 0.7 } }
+    },
+    {
+        id: 11, name: 'Noise Sweep',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Noise' }, osc2: { ...initialSynthState.osc2, type: 'Noise' }, filter: { ...initialSynthState.filter, cutoff: 100, resonance: 15 }, filterEnv: { attack: 2.0, decay: 2.0, sustain: 0 } },
+        modMatrix: { filterEnv: { filterCutoff: 0.8 } }
+    },
+    {
+        id: 12, name: 'Laser FX',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Saw Down', octave: 2 }, filterEnv: { attack: 0.001, decay: 0.3, sustain: 0 }, ampEnv: { decay: 0.3 } },
+        modMatrix: { filterEnv: { osc1Pitch: 0.8 } }
+    },
+    {
+        id: 13, name: 'Organ',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Sine', octave: 0 }, osc2: { ...initialSynthState.osc2, type: 'Triangle', octave: 1 }, oscMix: 0.5, filter: { ...initialSynthState.filter, cutoff: 5000 }, ampEnv: { decay: 0.1 } },
+        modMatrix: {}
+    },
+    {
+        id: 14, name: 'Brass',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Saw Down', octave: 0 }, osc2: { ...initialSynthState.osc2, type: 'Saw Up', octave: 0, detune: 8 }, filter: { ...initialSynthState.filter, cutoff: 400, envAmount: 1500 }, filterEnv: { attack: 0.1, decay: 0.5, sustain: 0.5 } },
+        modMatrix: {}
+    },
+    {
+        id: 15, name: 'Kick Synth',
+        synth: { ...initialSynthState, osc1: { ...initialSynthState.osc1, type: 'Sine', octave: -2 }, osc2: { ...initialSynthState.osc2, type: 'Sine', octave: -2 }, filter: { ...initialSynthState.filter, cutoff: 100, envAmount: 0 }, filterEnv: { attack: 0.001, decay: 0.3, sustain: 0 }, ampEnv: { decay: 0.3 } },
+        modMatrix: { filterEnv: { osc1Pitch: 0.7 } }
+    },
 ];
 
 const defaultPresets: (SynthPreset | null)[] = Array.from({ length: 128 }, (_, i) => {
@@ -828,6 +897,9 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case ActionType.SET_SYNTH_PRESET_LIST: {
             return { ...state, synthPresets: action.payload };
         }
+        case ActionType.IMPORT_SYNTH_PRESETS: {
+            return { ...state, synthPresets: action.payload };
+        }
         case ActionType.SET_SELECTED_SEQ_STEP:
             return { ...state, selectedSeqStep: action.payload };
         case ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE:
@@ -978,6 +1050,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const loadGlobalPresets = async () => {
             const storedPresets = await db.globalSynthPresets.toArray();
             if (storedPresets.length === 0) {
+                // Initial Population of Factory Presets to DB
                 const initialPresets = defaultPresets.map((p, i) => {
                     if (p) return { ...p, id: i };
                     return null;
