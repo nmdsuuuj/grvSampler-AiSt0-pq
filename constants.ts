@@ -1,5 +1,4 @@
 
-
 import { Groove, BiquadFilterType, PerformanceChain, FXAutomation, PerformanceEffect, FXType } from "./types";
 
 export const PAD_SIZE = 'w-8 h-8';
@@ -143,10 +142,10 @@ export const LFO_SYNC_RATES: { label: string; beats: number }[] = [
 
 export const FILTER_TYPES: string[] = [
     'Lowpass 12dB',
-    'Highpass 12dB',
-    'Bandpass 12dB',
     'Lowpass 24dB',
+    'Highpass 12dB',
     'Highpass 24dB',
+    'Bandpass 12dB',
     'Bandpass 24dB',
     'Peak',
     'Comb+',

@@ -1,7 +1,7 @@
 
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { AppContext } from '../../context/AppContext';
-import { db, Project, StorableSample, SampleKit, BankPreset, audioBufferToStorable, storableToAudioBuffer } from '../../db';
+import { db, Project, StorableSample, SampleKit, BankPreset, audioBufferToStorable, storableToAudioBuffer, Session } from '../../db';
 import { ActionType, AppState, Sample, BankPresetData } from '../../types';
 import { PADS_PER_BANK } from '../../constants';
 
@@ -325,6 +325,63 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         }
     };
 
+    // --- User Default Synth Settings Handlers ---
+    const handleSaveUserDefaultSynth = () => {
+        const { synth, synthModMatrix } = state;
+        const settings = {
+            synth: JSON.parse(JSON.stringify(synth)),
+            modMatrix: JSON.parse(JSON.stringify(synthModMatrix))
+        };
+        localStorage.setItem('groove_sampler_user_default_synth', JSON.stringify(settings));
+        dispatch({ type: ActionType.SHOW_TOAST, payload: '現在のシンセ設定を起動時のデフォルトとして保存しました。' });
+    };
+
+    const handleLoadUserDefaultSynth = async () => {
+        // 1. Kill sound immediately
+        flushAllSources();
+        
+        // 2. Dispatch the Reset Action (which now includes resetting effects)
+        dispatch({ type: ActionType.RESET_TO_USER_DEFAULT });
+        
+        // 3. Force-Save this "Clean" state to IndexedDB immediately.
+        // This bypasses the 1-second auto-save debounce in AppContext.
+        // If the user refreshes the page right after this, they will get this clean state
+        // instead of the broken state that was previously auto-saved.
+        const stateToSave = { ...state };
+        const propertiesToDelete: (keyof AppState)[] = [
+            'audioContext', 'isInitialized', 'isPlaying', 'isRecording', 
+            'isArmed', 'currentSteps', 'samples', 'grooves', 'isLoading',
+            'isMasterRecording', 'isMasterRecArmed', 'toastMessage'
+        ];
+        propertiesToDelete.forEach(prop => delete (stateToSave as Partial<AppState>)[prop]);
+
+        const samplesToStore: StorableSample[] = state.samples.map(s => ({
+            ...s,
+            buffer: undefined,
+            bufferData: audioBufferToStorable(s.buffer),
+        }));
+
+        const session: Session = {
+            id: 0,
+            state: stateToSave,
+            samples: samplesToStore,
+        };
+
+        try {
+            await db.session.put(session);
+            console.log("Forced session save completed.");
+        } catch (error) {
+            console.error("Failed to force save session:", error);
+        }
+
+        dispatch({ type: ActionType.SHOW_TOAST, payload: 'デフォルト設定を適用し、セッションを強制保存しました。' });
+    };
+
+    const handleClearUserDefaultSynth = () => {
+        localStorage.removeItem('groove_sampler_user_default_synth');
+        dispatch({ type: ActionType.SHOW_TOAST, payload: 'デフォルト設定を工場出荷時にリセットしました。' });
+    };
+
     const renderListItem = (
         item: { id?: number; name: string; createdAt: Date }, 
         onLoad: (id: number) => void, 
@@ -346,6 +403,16 @@ const ProjectView: React.FC<ProjectViewProps> = ({ flushAllSources }) => {
         <div className="p-2 space-y-3 h-full overflow-y-auto">
             {isManualOpen && <ManualModal onClose={() => setIsManualOpen(false)} />}
             
+            <div className="bg-white p-2 rounded-lg shadow-md space-y-2">
+                <h3 className="font-bold text-slate-700 text-center mb-1">起動時の設定 (Startup Settings)</h3>
+                <p className="text-xs text-slate-500 text-center -mt-1 mb-2">現在のシンセ設定をアプリ起動時の初期状態として保存します。</p>
+                <div className="grid grid-cols-2 gap-2">
+                    <button onClick={handleSaveUserDefaultSynth} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 rounded text-xs">現在の設定を保存<br/>(Save Current as Default)</button>
+                    <button onClick={handleLoadUserDefaultSynth} className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded text-xs">デフォルト設定をロード<br/>(Apply & Force Save)</button>
+                    <button onClick={handleClearUserDefaultSynth} className="bg-slate-400 hover:bg-slate-500 text-white font-bold py-2 rounded text-xs col-span-2">設定を初期化<br/>(Reset to Factory)</button>
+                </div>
+            </div>
+
             <div className="bg-white p-2 rounded-lg shadow-md space-y-2">
                 <h3 className="font-bold text-slate-700 text-center mb-1">プロジェクト管理</h3>
                 <div className="flex space-x-2">

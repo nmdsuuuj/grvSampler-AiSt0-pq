@@ -8,6 +8,7 @@ import { OSC_WAVEFORMS, LFO_WAVEFORMS, FILTER_TYPES, WAVESHAPER_TYPES, MOD_SOURC
 import ModulationNode from '../ModulationNode';
 import LfoVisualizer from '../LfoVisualizer';
 import { SubTab } from '../../App';
+import { db } from '../../db';
 
 interface SynthViewProps {
     playSynthNote: (detune: number, time?: number) => void;
@@ -71,22 +72,38 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
         dispatch({ type: ActionType.RANDOMIZE_SYNTH_MOD_MATRIX });
     };
 
-    const handleSavePreset = () => {
+    const handleSavePreset = async () => {
         if (selectedPresetSlot === null || !presetNameInput.trim()) return;
         const name = presetNameInput.trim();
+        
+        // 1. Update State (Immediate UI Feedback)
         dispatch({
             type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX,
             payload: { index: selectedPresetSlot, name, synth, matrix: synthModMatrix }
         });
+
+        // 2. Persist to Global DB
+        const preset: SynthPreset = {
+            id: selectedPresetSlot,
+            name: name,
+            synth: JSON.parse(JSON.stringify(synth)),
+            modMatrix: JSON.parse(JSON.stringify(synthModMatrix))
+        };
+        await db.globalSynthPresets.put(preset);
+
         dispatch({ type: ActionType.SHOW_TOAST, payload: `プリセット「${name}」をスロット ${selectedPresetSlot + 1} に保存しました。` });
         setSelectedPresetSlot(null);
     };
 
-    const handleClearPreset = () => {
+    const handleClearPreset = async () => {
         if (selectedPresetSlot === null) return;
         const presetToClear = synthPresets[selectedPresetSlot];
         if (presetToClear && window.confirm(`Are you sure you want to clear preset "${presetToClear.name}"?`)) {
+            // 1. Update State
             dispatch({ type: ActionType.CLEAR_SYNTH_PRESET_AT_INDEX, payload: { index: selectedPresetSlot } });
+            
+            // 2. Remove from Global DB
+            await db.globalSynthPresets.delete(selectedPresetSlot);
         }
     };
     
@@ -375,10 +392,10 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
                             {/* Matrix Body */}
                             <div className="flex-grow flex">
                                  {/* Source Labels Column */}
-                                <div className="w-1/6 flex-shrink-0 flex flex-col justify-around items-end pr-2 space-y-1">
+                                <div className="w-6 flex-shrink-0 flex flex-col justify-around items-center pr-1 space-y-1">
                                     {MOD_SOURCES.map(source => (
-                                        <div key={source} className="flex-1 flex flex-col items-end justify-center text-rose-500 font-bold text-sm">
-                                            {source === 'filterEnv' ? 'Fenv' : source.toUpperCase()}
+                                        <div key={source} className="flex-1 flex items-center justify-center text-rose-500 font-bold text-[10px] [writing-mode:vertical-rl] rotate-180">
+                                            {source === 'filterEnv' ? 'FLT ENV' : source === 'modWheel' ? 'WHEEL' : source.toUpperCase()}
                                         </div>
                                     ))}
                                 </div>
@@ -391,7 +408,7 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
                                         <div className="col-span-2 border-b">FILTER</div>
                                     </div>
                                     {/* Rows */}
-                                    <div className="flex-grow grid grid-rows-3 gap-1">
+                                    <div className="flex-grow grid grid-rows-4 gap-1">
                                         {MOD_SOURCES.map(source => (
                                             <div key={source} className="grid grid-cols-8 gap-1">
                                                 {MOD_DESTINATIONS.map(dest => (
@@ -409,23 +426,59 @@ const SynthView: React.FC<SynthViewProps> = ({ playSynthNote, lfoAnalysers, setS
                             </div>
 
                             {/* Mod Wheel & Matrix Buttons */}
-                            <div className="w-20 flex-shrink-0 flex flex-col items-center ml-2">
-                                <h3 className="text-center font-bold text-slate-600 text-xs whitespace-nowrap mb-1">Mod Whl</h3>
-                                <div className="flex-grow w-full flex space-x-2">
-                                    <div className="flex-grow h-full flex justify-center">
-                                        <Fader
-                                            hideInfo
-                                            value={synth.modWheel}
-                                            onChange={v => handleParamChange('modWheel', v)}
-                                            min={0} max={1} step={0.01} defaultValue={1}
-                                            isVertical={true}
-                                        />
+                            <div className="w-auto flex-shrink-0 flex flex-col items-center ml-1 border-l border-emerald-100 pl-1 space-y-1">
+                                <h3 className="text-center font-bold text-slate-600 text-[10px] whitespace-nowrap mb-1">Mod Wheel</h3>
+                                <div className="flex-grow flex flex-row items-center space-x-1">
+                                    {/* Faders */}
+                                    <div className="h-full flex space-x-1">
+                                        <div className="h-full flex flex-col items-center w-6">
+                                            <Fader
+                                                label="Depth"
+                                                value={synth.modWheel}
+                                                onChange={v => handleParamChange('modWheel', v)}
+                                                min={0} max={1} step={0.01} defaultValue={0}
+                                                isVertical={true}
+                                                verticalText={true}
+                                            />
+                                        </div>
+                                        <div className="h-full flex flex-col items-center w-6">
+                                            <Fader
+                                                label="Offset"
+                                                value={synth.modWheelOffset}
+                                                onChange={v => handleParamChange('modWheelOffset', v)}
+                                                min={0} max={1} step={0.01} defaultValue={1}
+                                                isVertical={true}
+                                                verticalText={true}
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="flex flex-col justify-end space-y-1">
-                                        <button onClick={handleMuteModWheelLock} className={`text-xs font-bold px-2 py-1 rounded ${(isModWheelLockMuted ?? false) ? 'bg-yellow-400 text-slate-800' : 'bg-emerald-200 text-emerald-800'}`}>P.L Mute</button>
-                                        <button onClick={handleRandomizeMatrixOnly} className="bg-sky-200 text-sky-800 text-xs font-bold px-2 py-1 rounded">Rnd</button>
-                                        <button onClick={handleClearMatrix} className="bg-rose-200 text-rose-800 text-xs font-bold px-2 py-1 rounded">Clear</button>
-                                        <button onClick={handleMuteMatrix} className={`text-xs font-bold px-2 py-1 rounded ${isModMatrixMuted ? 'bg-slate-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}>{isModMatrixMuted ? 'Mute' : 'Mute'}</button>
+                                    
+                                    {/* Buttons Grid -> Now Column */}
+                                    <div className="flex flex-col h-full justify-between py-1 space-y-1">
+                                        <button 
+                                            onClick={handleMuteModWheelLock} 
+                                            className={`w-6 flex-grow flex items-center justify-center rounded text-[10px] font-bold leading-none [writing-mode:vertical-rl] rotate-180 ${(isModWheelLockMuted ?? false) ? 'bg-yellow-400 text-slate-800' : 'bg-emerald-200 text-emerald-800'}`}
+                                        >
+                                            P.L Mute
+                                        </button>
+                                        <button 
+                                            onClick={handleRandomizeMatrixOnly} 
+                                            className="w-6 flex-grow flex items-center justify-center rounded bg-sky-200 text-sky-800 text-[10px] font-bold leading-none [writing-mode:vertical-rl] rotate-180"
+                                        >
+                                            Rnd
+                                        </button>
+                                        <button 
+                                            onClick={handleClearMatrix} 
+                                            className="w-6 flex-grow flex items-center justify-center rounded bg-rose-200 text-rose-800 text-[10px] font-bold leading-none [writing-mode:vertical-rl] rotate-180"
+                                        >
+                                            Clear
+                                        </button>
+                                        <button 
+                                            onClick={handleMuteMatrix} 
+                                            className={`w-6 flex-grow flex items-center justify-center rounded text-[10px] font-bold leading-none [writing-mode:vertical-rl] rotate-180 ${isModMatrixMuted ? 'bg-slate-400 text-white' : 'bg-emerald-200 text-emerald-800'}`}
+                                        >
+                                            Mute
+                                        </button>
                                     </div>
                                 </div>
                             </div>

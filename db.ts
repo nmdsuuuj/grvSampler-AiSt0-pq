@@ -1,6 +1,6 @@
 
 import Dexie, { Table } from 'dexie';
-import { AppState, Sample, Step, Pattern } from './types';
+import { AppState, Sample, Step, Pattern, SynthPreset } from './types';
 
 // We need to serialize AudioBuffer since it's not cloneable for IndexedDB.
 // We'll store the raw channel data and sample rate.
@@ -71,6 +71,7 @@ const dbInstance = new Dexie('GrooveSamplerDB') as Dexie & {
   bankPresets: Table<BankPreset>;
   bankKits: Table<BankKit>;
   session: Table<Session>; // New table for session state
+  globalSynthPresets: Table<SynthPreset>; // New table for global synth presets
 };
 
 // Version 1 definition (for existing users)
@@ -109,6 +110,16 @@ dbInstance.version(5).stores({
   bankPresets: '++id, name, createdAt',
   bankKits: '++id, name, createdAt',
   session: 'id', // Primary key is 'id', we will only use id: 0
+});
+
+// Version 6: Add global synth presets table
+dbInstance.version(6).stores({
+  projects: '++id, name, createdAt',
+  sampleKits: '++id, name, createdAt',
+  bankPresets: '++id, name, createdAt',
+  bankKits: '++id, name, createdAt',
+  session: 'id',
+  globalSynthPresets: 'id', // Use slot index (0-127) as primary key
 });
 
 

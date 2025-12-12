@@ -417,28 +417,44 @@ export const useFxChain = () => {
 
     }, [audioContext, performanceFx.routing]);
 
-    // Handle Bypass Logic
+    // Handle Bypass Logic & MIX Implementation
     useEffect(() => {
         if (!audioContext || slotNodesRef.current.length === 0) return;
         
         const now = audioContext.currentTime;
-        const RAMP = 0.01;
+        const RAMP = 0.02;
 
         performanceFx.slots.forEach((slotData, i) => {
             const nodes = slotNodesRef.current[i];
             if (!nodes) return;
             
             if (slotData.isOn) {
-                setTarget(nodes.dryGain.gain, 0, now, RAMP);
-                setTarget(nodes.wetGain.gain, 1, now, RAMP);
-                setTarget(nodes.effectOutput.gain, 1, now, RAMP); 
+                // Get Mix value (default to 1 if undefined)
+                const mix = safe(slotData.params.mix, 1);
+                
+                // Crossfade Logic:
+                // Dry = 1 - mix
+                // Wet (Output of Effect) = mix
+                // Input to Effect = 1 (Always feed effect for tails, etc.)
+                
+                setTarget(nodes.dryGain.gain, 1 - mix, now, RAMP);
+                setTarget(nodes.effectOutput.gain, mix, now, RAMP);
+                setTarget(nodes.wetGain.gain, 1, now, RAMP); 
             } else {
+                // BYPASSED
                 setTarget(nodes.dryGain.gain, 1, now, RAMP);
-                setTarget(nodes.wetGain.gain, 0, now, RAMP);
+                setTarget(nodes.wetGain.gain, 0, now, RAMP); // Cut input to effect
 
                 if (slotData.bypassMode === 'hard') {
-                    setTarget(nodes.effectOutput.gain, 0, now, RAMP);
+                    setTarget(nodes.effectOutput.gain, 0, now, RAMP); // Cut output (no tails)
                 } else {
+                    // Soft bypass: Allow effect output to ring out (tails)
+                    // But we want the *current* state of the effect output to fade naturally or stay connected?
+                    // Typically soft bypass means stop feeding input, but let output play.
+                    // We set wetGain to 0 (stop feeding input).
+                    // We keep effectOutputGain at 1? Or 0?
+                    // If we set it to 1, we might hear the tail at full volume.
+                    // Let's assume soft bypass keeps the output open.
                     setTarget(nodes.effectOutput.gain, 1, now, RAMP);
                 }
             }

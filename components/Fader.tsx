@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 
 interface FaderProps {
@@ -14,12 +15,13 @@ interface FaderProps {
   isVertical?: boolean;
   hideInfo?: boolean;
   hideValue?: boolean;
+  verticalText?: boolean; // New prop for rotating text
 }
 
 const Fader: React.FC<FaderProps> = ({ 
   label, value, onChange, min, max, step, defaultValue, 
   displayValue, displayString, displayPrecision = 2, isVertical = false, 
-  hideInfo = false, hideValue = false
+  hideInfo = false, hideValue = false, verticalText = false
 }) => {
   const [internalValue, setInternalValue] = useState(value);
   const frameId = useRef<number | null>(null);
@@ -98,7 +100,13 @@ const Fader: React.FC<FaderProps> = ({
   
   const labelContainerClasses = `absolute inset-0 flex items-center pointer-events-none text-white font-bold text-xs drop-shadow-sm select-none`;
   const horizontalLabelClasses = `justify-between px-2`; // Adjust padding
-  const verticalLabelClasses = 'flex-col justify-between items-center py-2'; // Adjust padding
+  // Adjusted vertical alignment for rotated text
+  const verticalLabelClasses = verticalText 
+    ? 'flex-col justify-center items-center py-2 space-y-2' 
+    : 'flex-col justify-between items-center py-2';
+
+  const labelTextClass = verticalText ? '[writing-mode:vertical-rl] rotate-180 whitespace-nowrap' : 'truncate';
+  const valueTextClass = verticalText ? '[writing-mode:vertical-rl] rotate-180 font-mono text-[10px]' : 'truncate';
 
   return (
     <div className={containerClasses}>
@@ -116,9 +124,9 @@ const Fader: React.FC<FaderProps> = ({
           />
           {!hideInfo && (
             <div className={`${labelContainerClasses} ${isVertical ? verticalLabelClasses : horizontalLabelClasses}`}>
-                {label && <span className="truncate">{label}</span>}
+                {label && <span className={labelTextClass}>{label}</span>}
                 {!hideValue && (
-                  <span className="truncate">
+                  <span className={valueTextClass}>
                     {displayString !== undefined
                       ? displayString
                       : isFinite(valueToDisplay) ? valueToDisplay.toFixed(displayPrecision) : '...'}

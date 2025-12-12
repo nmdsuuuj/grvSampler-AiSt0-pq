@@ -11,7 +11,6 @@ interface TrackState {
     currentPart: 'A' | 'B';
     partRepetition: number;
     totalStepsElapsed: number; // For bar-based LFO retriggering
-    lastModWheelValue: number; // For trigger-style P-Lock
 }
 
 // --- Helper function for scale remapping ---
@@ -78,8 +77,6 @@ export const useSequencer = (
             currentPart: 'A',
             partRepetition: 0,
             totalStepsElapsed: 0,
-            // Initialize with the current global modWheel value for the synth track
-            lastModWheelValue: (i === 3 && sequencerStateRef.current) ? sequencerStateRef.current.synth.modWheel : 1.0,
         }));
         // The reducer handles resetting currentSteps now when isPlaying becomes false
     };
@@ -108,9 +105,6 @@ export const useSequencer = (
             track.currentPart = 'A';
             track.partRepetition = 0;
             track.totalStepsElapsed = 0;
-            if (i === 3) { // Sync synth track's state on play start
-                track.lastModWheelValue = sequencerStateRef.current.synth.modWheel;
-            }
         });
 
         const scheduler = () => {
@@ -174,12 +168,25 @@ export const useSequencer = (
                         });
                     }
                     
-                    // Maintain the last locked p-lock values (trigger-style)
+                    // Determine effective Mod Wheel Value
+                    // Check if there is a P-Lock on this specific step.
+                    // If no P-Lock, default to 1. This means the sequencer sends a "full" signal,
+                    // which is then scaled by the Panel Depth Knob.
+                    let effectiveModWheel = 1; 
+                    let pLockFound = false;
+
                     for (let sampleId = firstSampleInBank; sampleId < lastSampleInBank; sampleId++) {
                         const modWheelLock = pattern.paramLocks[sampleId]?.modWheel?.[displayStep];
                         if (modWheelLock !== undefined && modWheelLock !== null) {
-                            trackState.lastModWheelValue = modWheelLock;
+                            effectiveModWheel = modWheelLock;
+                            pLockFound = true;
+                            break; // Use the first found lock
                         }
+                    }
+
+                    // If P.L Mute is active, force Value to 1 (Panel Knob control only)
+                    if (isModWheelLockMuted) {
+                        effectiveModWheel = 1;
                     }
 
                     const activeNotes: { sampleId: number; stepInfo: Step }[] = [];
@@ -207,10 +214,8 @@ export const useSequencer = (
                             finalDetune = remapDetuneToScale(finalDetune, pattern.playbackScale, pattern.playbackKey);
                         }
                         
-                        // Use the persistent, trigger-style p-lock values from the track state
-                        // BUT, if P.L Mute is on, use the global value instead.
                         const synthParams: Partial<Pick<Synth, 'modWheel'>> = {
-                            modWheel: (isModWheelLockMuted ?? false) ? synth.modWheel : trackState.lastModWheelValue,
+                            modWheel: effectiveModWheel,
                         };
 
                         playSynthNote(finalDetune, scheduledTime, synthParams);

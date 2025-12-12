@@ -1,5 +1,4 @@
 
-
 export interface Groove {
     id: number;
     name: string;
@@ -145,6 +144,7 @@ export interface SynthLFO {
 }
 
 export interface Synth {
+    version?: number; // NEW: Version tracking for migration
     osc1: SynthOscillator;
     osc2: SynthOscillator;
     oscMix: number; // 0-1
@@ -153,7 +153,8 @@ export interface Synth {
     ampEnv: SynthAmpEnvelope;
     lfo1: SynthLFO;
     lfo2: SynthLFO;
-    modWheel: number; // 0-1, global modulation amount
+    modWheel: number; // 0-1, Global Depth control for sequencer mod
+    modWheelOffset: number; // 0-1, Constant offset added to modulation
     masterGain: number;
     masterOctave: number;
 }
@@ -392,8 +393,10 @@ export enum ActionType {
     SAVE_SYNTH_PRESET_AT_INDEX,
     CLEAR_SYNTH_PRESET_AT_INDEX,
     LOAD_SYNTH_PRESET,
+    SET_SYNTH_PRESET_LIST, // NEW
     SET_SELECTED_SEQ_STEP,
     TOGGLE_MOD_WHEEL_LOCK_MUTE,
+    RESET_TO_USER_DEFAULT, // NEW
     // Performance FX Actions
     SET_FX_TYPE, 
     UPDATE_FX_PARAM,
@@ -477,8 +480,10 @@ export type Action =
     | { type: ActionType.SAVE_SYNTH_PRESET_AT_INDEX; payload: { index: number, name: string, synth: Synth, matrix: ModMatrix } }
     | { type: ActionType.CLEAR_SYNTH_PRESET_AT_INDEX; payload: { index: number } }
     | { type: ActionType.LOAD_SYNTH_PRESET; payload: SynthPreset }
+    | { type: ActionType.SET_SYNTH_PRESET_LIST; payload: (SynthPreset | null)[] }
     | { type: ActionType.SET_SELECTED_SEQ_STEP; payload: number | null }
     | { type: ActionType.TOGGLE_MOD_WHEEL_LOCK_MUTE }
+    | { type: ActionType.RESET_TO_USER_DEFAULT } // NEW
     // Performance FX Actions
     | { type: ActionType.SET_FX_TYPE; payload: { slotIndex: number; type: FXType } } 
     | { type: ActionType.UPDATE_FX_PARAM; payload: { slotIndex: number; param: string; value: number | string } }
